@@ -1,135 +1,121 @@
-# 数据终端 - 开发计划
+# Data Terminal - 开发路线图
 
-## 开发策略
-自底向上：先跑通数据流，再完善架构。
-
----
-
-## Phase 1：基础骨架（当前）
-
-### 目标
-建立基础项目结构，实现核心数据流：添加标的 → 拉取价格 → 存储 → 查询
-
-### 任务清单
-
-- [x] 1.1 项目结构初始化
-  - [x] 创建基础目录结构
-  - [x] pyproject.toml 配置
-  - [x] 数据库连接配置
-
-- [x] 1.2 数据库模型
-  - [x] Asset（标的）
-  - [x] PriceData（价格数据）
-  - [ ] Watchlist（关注列表，简化版）
-  - [ ] 数据库迁移脚本
-
-- [x] 1.3 基础 API
-  - [x] POST /api/v1/assets - 添加标的 ✅
-  - [x] GET /api/v1/assets - 列示标的 ✅
-  - [x] GET /api/v1/assets/{id} - 获取单个标的 ✅
-  - [x] GET /api/v1/prices - 查询价格 ✅
-  - [x] GET /api/v1/prices/latest - 最新价格 ✅
-  - [x] POST /api/v1/update - 触发更新 ✅
-
-- [x] 1.4 Yahoo Finance Fetcher
-  - [x] 基础采集类
-  - [x] 拉取历史数据
-  - [x] 存储到数据库 ✅
-
-- [x] 1.5 验证数据流
-  - [x] 手动测试：添加 BTC → 更新 → 查询价格 ✅
-  - [x] 添加 SPY → 更新 → 查询价格 ✅
+> 最后更新: 2026-03-24
 
 ---
 
-## Phase 2：指标系统
+## 已完成 ✅
 
-### 目标
-实现指标模板系统，支持 MA200 计算
+### Phase 1：基础骨架
+- [x] 项目结构初始化 (FastAPI + SQLAlchemy + SQLite)
+- [x] 数据库模型 (Asset, PriceData)
+- [x] 基础 API (assets, prices)
+- [x] Yahoo Finance Fetcher
+- [x] 数据流验证
 
-### 任务清单
+### Phase 2：指标系统
+- [x] 指标模型 (IndicatorTemplate, Indicator, IndicatorValue)
+- [x] 指标计算引擎 (BaseIndicatorProcessor + 注册表)
+- [x] 内置指标实现:
+  - [x] BTC 恐慌贪婪指数 (alternative.me)
+  - [x] VIX 波动率 (Yahoo Finance)
+  - [x] MA200 均线偏离度 (本地计算)
+- [x] 指标 API (CRUD + calculate + values)
 
-- [ ] 2.1 指标模型
-  - [ ] IndicatorTemplate（模板定义）
-  - [ ] Indicator（指标实例）
-  - [ ] IndicatorValue（指标数值）
-
-- [ ] 2.2 指标计算引擎
-  - [ ] 指标基类
-  - [ ] MA200 指标实现
-  - [ ] 分档计算
-
-- [ ] 2.3 指标 API
-  - [ ] POST /api/v1/indicators - 创建指标
-  - [ ] GET /api/v1/indicators/{id}/values - 查询指标值
-  - [ ] POST /api/v1/indicators/{id}/calculate - 手动计算
-
----
-
-## Phase 3：关注列表与自动化
-
-### 目标
-实现关注列表管理和定时更新
-
-### 任务清单
-
-- [ ] 3.1 关注列表功能
-  - [ ] Watchlist 完整模型
-  - [ ] 添加/移除标的
-  - [ ] 获取关注列表价格
-
-- [ ] 3.2 定时任务
-  - [ ] APScheduler 集成
-  - [ ] 每日自动更新
-  - [ ] 更新日志记录
+### Phase 3：数据引擎与自动化
+- [x] 历史数据回填 (backfill.py)
+- [x] 增量更新机制 (price_scheduler.py)
+- [x] 指标计算调度 (indicator_scheduler.py)
+- [x] CLI 管理工具 (cli.py)
+- [x] 过去一年数据填充 (BTC: 366条, SPY: 251条)
 
 ---
 
-## Phase 4：搜索与多数据源
+## 进行中/待开发 🚧
 
-### 目标
-支持多数据源搜索和浏览
+### Phase 4：Watch List & 每日自动化
+- [ ] Watchlist 关注列表模型
+- [ ] 添加/移除标的到关注列表
+- [ ] 关注列表价格聚合查询
+- [ ] APScheduler 定时任务集成
+- [ ] 每日自动更新价格
+- [ ] 更新日志与监控
 
-### 任务清单
+### Phase 5：多数据源与搜索
+- [ ] Fetcher 搜索接口 (search, list_assets)
+- [ ] Binance 数据源 (加密货币)
+- [ ] AKShare 数据源 (A股)
+- [ ] 跨源搜索 API
+- [ ] 数据源浏览接口
 
-- [ ] 4.1 Fetcher 增强
-  - [ ] search() 搜索接口
-  - [ ] list_assets() 浏览接口
-  - [ ] Binance Fetcher
-  - [ ] AKShare Fetcher
-
-- [ ] 4.2 搜索 API
-  - [ ] GET /api/v1/search?q=keyword
-  - [ ] GET /api/v1/datasources
-
----
-
-## Phase 5：前端与图表
-
-### 目标
-TradingView 集成和基础前端
-
-### 任务清单
-
-- [ ] 5.1 TradingView 接口
+### Phase 6：前端与可视化
+- [ ] TradingView 轻量图表集成
   - [ ] /tv/config
   - [ ] /tv/symbols
   - [ ] /tv/history
+- [ ] Dashboard 数据面板
+- [ ] 标的搜索页
+- [ ] 价格图表页
+- [ ] 关注列表页
+- [ ] 指标展示页
 
-- [ ] 5.2 前端页面
-  - [ ] 标的搜索页
-  - [ ] 价格图表页
-  - [ ] 关注列表页
-  - [ ] 指标展示页
+### Phase 7：监控与告警
+- [ ] 指标档位变化通知
+- [ ] 数据更新失败告警
+- [ ] 系统健康监控
 
 ---
 
-## 当前进度
+## 系统当前状态
 
-**Phase 1 - 基础骨架**
+### 数据状态 (2026-03-24)
+| 资产 | 数据量 | 最新日期 | 最新价格 |
+|------|--------|---------|---------|
+| BTC-USD | 366条 | 2026-03-24 | 70828.74 |
+| SPY | 251条 | 2026-03-24 | 655.38 |
 
+### 指标状态
+| 指标 | 当前值 | 档位 | 数据来源 |
+|------|--------|------|---------|
+| BTC 恐慌贪婪 | 11 | 极度恐惧 | alternative.me |
+| VIX | 26.11 | 波动加剧 | Yahoo Finance |
+
+---
+
+## 使用方式
+
+### CLI 命令
+```bash
+cd backend
+source .venv/bin/activate
+
+# 查看状态
+python -m app.cli status
+
+# 回填历史数据
+python -m app.cli fill-history
+
+# 增量更新价格
+python -m app.cli update-prices
+
+# 重新计算指标
+python -m app.cli recalc
 ```
-[░░░░░░░░░░░░░░░░░░] 0%
+
+### HTTP API
+```bash
+# 启动服务
+uvicorn app.main:app --port 8000
+
+# 访问文档
+open http://localhost:8000/docs
 ```
 
-下一步：创建数据库模型
+---
+
+## 下一步优先级
+
+1. **Phase 4**: 实现 Watchlist 和每日自动更新 (高优先级)
+2. **Phase 5**: 添加更多数据源 (中优先级)
+3. **Phase 6**: 前端可视化 (中优先级)
+4. **Phase 7**: 监控告警 (低优先级)
