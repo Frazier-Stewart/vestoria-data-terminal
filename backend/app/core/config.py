@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     
+    # Scheduler
+    SCHEDULER_ENABLED: bool = True  # Set to False to disable daily auto-updates
+    
     class Config:
         env_file = ".env"
 
