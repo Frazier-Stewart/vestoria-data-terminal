@@ -1,22 +1,51 @@
 """FastAPI application entry point."""
-import os
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api import api_router
+from app.services.scheduler import get_data_scheduler
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+)
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle."""
+    # --- Startup ---
+    scheduler = get_data_scheduler()
+    if settings.SCHEDULER_ENABLED:
+        scheduler.start()
+        logging.getLogger("main").info("Daily scheduler started")
+    else:
+        logging.getLogger("main").info("Daily scheduler disabled (SCHEDULER_ENABLED=false)")
+
+    yield
+
+    # --- Shutdown ---
+    scheduler.stop()
+    logging.getLogger("main").info("Daily scheduler stopped")
+
 
 # Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
     description="数据终端 - 统一数据采集与管理系统",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS middleware
@@ -37,15 +66,20 @@ def root():
     """Root endpoint."""
     return {
         "message": "Data Terminal API",
-        "version": "0.1.0",
-        "docs": "/docs"
+        "version": "0.2.0",
+        "docs": "/docs",
+        "scheduler": "enabled" if settings.SCHEDULER_ENABLED else "disabled",
     }
 
 
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    scheduler = get_data_scheduler()
+    return {
+        "status": "healthy",
+        "scheduler_running": scheduler.is_running,
+    }
 
 
 if __name__ == "__main__":
