@@ -1,17 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  AreaChart,
-  Area,
-} from 'recharts';
+import { createChart, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
 import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -87,12 +77,27 @@ function StatCard({ title, value, icon: Icon, color }: StatCardProps) {
   );
 }
 
+function getChartColors() {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return {
+    textColor: isDark ? '#64748b' : '#94a3b8',
+    gridColor: isDark ? 'rgba(51, 65, 85, 0.5)' : 'rgba(226, 232, 240, 0.8)',
+    borderColor: isDark ? '#334155' : '#e2e8f0',
+    crosshairColor: isDark ? '#94a3b8' : '#64748b',
+  };
+}
+
 export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
   const [asset, setAsset] = useState<Asset | null>(null);
   const [prices, setPrices] = useState<PriceData[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('3M');
+  const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+
+  const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setChartContainer(node);
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -114,8 +119,8 @@ export default function AssetDetail() {
 
   const fetchPrices = async (assetId: string) => {
     try {
-      const response = await axios.get(`/api/v1/prices?asset_id=${assetId}`);
-      const sorted = response.data.sort((a: PriceData, b: PriceData) => 
+      const response = await axios.get(`/api/v1/prices?asset_id=${assetId}&limit=9999`);
+      const sorted = response.data.sort((a: PriceData, b: PriceData) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
       setPrices(sorted);
@@ -126,31 +131,96 @@ export default function AssetDetail() {
 
   const filteredPrices = useMemo(() => {
     if (timeRange === 'ALL') return prices;
-    
+
     const now = dayjs();
     const ranges: Record<TimeRange, number> = {
-      '1M': 30,
-      '3M': 90,
-      '6M': 180,
-      '1Y': 365,
-      'ALL': 9999,
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 9999,
     };
-    
+
     const cutoff = now.subtract(ranges[timeRange], 'day');
     return prices.filter(p => dayjs(p.date).isAfter(cutoff));
   }, [prices, timeRange]);
 
-  const chartData = useMemo(() => {
-    return filteredPrices.map(p => ({
-      date: p.date,
-      dateStr: dayjs(p.date).format('MM-DD'),
-      close: p.close,
+  // Single effect: create chart + set data (re-runs on container ready, data change, or time range change)
+  useEffect(() => {
+    if (!chartContainer || filteredPrices.length === 0) return;
+
+    const colors = getChartColors();
+
+    const chart = createChart(chartContainer, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.textColor,
+        fontFamily: "'Inter', -apple-system, sans-serif",
+      },
+      grid: {
+        vertLines: { color: colors.gridColor },
+        horzLines: { color: colors.gridColor },
+      },
+      width: chartContainer.clientWidth,
+      height: 420,
+      crosshair: {
+        vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+        horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+        scaleMargins: { top: 0.05, bottom: 0.25 },
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+    });
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderVisible: false,
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
+    });
+
+    const volumeSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+    });
+
+    chart.priceScale('volume').applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    // Set data
+    const ohlcData = filteredPrices.map(p => ({
+      time: p.date as string,
       open: p.open,
       high: p.high,
       low: p.low,
-      volume: p.volume,
+      close: p.close,
     }));
-  }, [filteredPrices]);
+
+    const volumeData = filteredPrices.map(p => ({
+      time: p.date as string,
+      value: p.volume,
+      color: p.close >= p.open ? 'rgba(34, 197, 94, 0.4)' : 'rgba(239, 68, 68, 0.4)',
+    }));
+
+    candleSeries.setData(ohlcData);
+    volumeSeries.setData(volumeData);
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      chart.applyOptions({ width: chartContainer.clientWidth });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [chartContainer, filteredPrices]);
 
   const stats = useMemo(() => {
     if (filteredPrices.length === 0) return null;
@@ -161,7 +231,7 @@ export default function AssetDetail() {
     const avgVolume = filteredPrices.reduce((sum, p) => sum + p.volume, 0) / filteredPrices.length;
     const change = latest.close - first.close;
     const changePercent = (change / first.close) * 100;
-    
+
     return {
       latest: latest.close,
       high,
@@ -257,8 +327,8 @@ export default function AssetDetail() {
               <div style={{ fontSize: '32px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>
                 ${stats.latest.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <div style={{ 
-                fontSize: '14px', 
+              <div style={{
+                fontSize: '14px',
                 fontWeight: 600,
                 color: stats.isPositive ? '#22c55e' : '#ef4444',
                 display: 'flex',
@@ -276,36 +346,16 @@ export default function AssetDetail() {
 
       {/* Stats Cards */}
       {stats && (
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
           gap: '16px',
-          marginBottom: '24px' 
+          marginBottom: '24px'
         }}>
-          <StatCard
-            title="区间最高"
-            value={`$${stats.high.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-            icon={TrendingUp}
-            color="#22c55e"
-          />
-          <StatCard
-            title="区间最低"
-            value={`$${stats.low.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
-            icon={TrendingUp}
-            color="#ef4444"
-          />
-          <StatCard
-            title="平均成交量"
-            value={stats.avgVolume.toLocaleString()}
-            icon={Activity}
-            color="#6366f1"
-          />
-          <StatCard
-            title="数据天数"
-            value={`${filteredPrices.length} 天`}
-            icon={Calendar}
-            color="#f59e0b"
-          />
+          <StatCard title="区间最高" value={`$${stats.high.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} icon={TrendingUp} color="#22c55e" />
+          <StatCard title="区间最低" value={`$${stats.low.toLocaleString('en-US', { minimumFractionDigits: 2 })}`} icon={TrendingUp} color="#ef4444" />
+          <StatCard title="平均成交量" value={stats.avgVolume.toLocaleString()} icon={Activity} color="#6366f1" />
+          <StatCard title="数据天数" value={`${filteredPrices.length} 天`} icon={Calendar} color="#f59e0b" />
         </div>
       )}
 
@@ -346,94 +396,18 @@ export default function AssetDetail() {
           </div>
         </div>
 
-        {chartData.length > 0 ? (
-          <div>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-                <XAxis 
-                  dataKey="dateStr" 
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                  tickMargin={10}
-                />
-                <YAxis 
-                  stroke="var(--text-muted)"
-                  fontSize={12}
-                  domain={['auto', 'auto']}
-                  tickFormatter={(value) => `$${value.toLocaleString()}`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    background: 'var(--bg-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '8px',
-                  }}
-                  formatter={(value: number) => [`$${value.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, '收盘价']}
-                  labelFormatter={(label) => label}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="close"
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  fillOpacity={1}
-                  fill="url(#colorPrice)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-
-            <div style={{ marginTop: '24px' }}>
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>成交量</p>
-              <ResponsiveContainer width="100%" height={100}>
-                <BarChart data={chartData} margin={{ top: 0, right: 30, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" vertical={false} />
-                  <XAxis 
-                    dataKey="dateStr" 
-                    stroke="var(--text-muted)"
-                    fontSize={12}
-                    tick={false}
-                  />
-                  <YAxis 
-                    stroke="var(--text-muted)"
-                    fontSize={12}
-                    tickFormatter={(value) => `${(value / 1e9).toFixed(1)}B`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--bg-primary)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: '8px',
-                    }}
-                    formatter={(value: number) => [`${value.toLocaleString()}`, '成交量']}
-                  />
-                  <Bar 
-                    dataKey="volume" 
-                    fill="#6366f1" 
-                    opacity={0.6}
-                    radius={[2, 2, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+        <div style={{ position: 'relative', width: '100%', height: '420px' }}>
+          <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+          {filteredPrices.length === 0 && (
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--text-muted)', background: 'var(--bg-primary)',
+            }}>
+              暂无历史数据
             </div>
-          </div>
-        ) : (
-          <div style={{ 
-            height: '400px', 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center',
-            color: 'var(--text-muted)' 
-          }}>
-            暂无历史数据
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* 基本信息 */}
@@ -448,7 +422,7 @@ export default function AssetDetail() {
         <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
           基本信息
         </h3>
-        
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
           {[
             { label: '代码', value: asset.symbol, icon: Database },
@@ -457,12 +431,7 @@ export default function AssetDetail() {
             { label: '交易所', value: asset.exchange || '-', icon: Globe },
             { label: '货币', value: asset.currency, icon: DollarSign },
             { label: '数据源', value: asset.data_source, icon: Database },
-            { 
-              label: '状态', 
-              value: asset.is_active ? '活跃' : '暂停', 
-              icon: Circle,
-              color: asset.is_active ? '#22c55e' : 'var(--text-muted)'
-            },
+            { label: '状态', value: asset.is_active ? '活跃' : '暂停', icon: Circle, color: asset.is_active ? '#22c55e' : 'var(--text-muted)' },
           ].map((item) => (
             <div
               key={item.label}
@@ -476,19 +445,8 @@ export default function AssetDetail() {
               }}
             >
               <div style={{ flex: 1 }}>
-                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 4px 0' }}>
-                  {item.label}
-                </p>
-                <p 
-                  style={{ 
-                    fontSize: '15px', 
-                    fontWeight: 600, 
-                    color: item.color || 'var(--text-primary)', 
-                    margin: 0 
-                  }}
-                >
-                  {item.value}
-                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 4px 0' }}>{item.label}</p>
+                <p style={{ fontSize: '15px', fontWeight: 600, color: item.color || 'var(--text-primary)', margin: 0 }}>{item.value}</p>
               </div>
             </div>
           ))}

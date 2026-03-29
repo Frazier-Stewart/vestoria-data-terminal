@@ -1,16 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  ReferenceLine,
-} from 'recharts';
+import { createChart, AreaSeries, ColorType } from 'lightweight-charts';
 import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -63,7 +54,6 @@ const gradeConfig: Record<string, { label: string; color: string; bg: string }> 
   very_high: { label: '极度高估', color: '#dc2626', bg: 'rgba(220, 38, 38, 0.15)' },
 };
 
-// Get grade based on fear/greed value
 const getFearGreedGrade = (value: number): { label: string; color: string } => {
   if (value <= 20) return { label: '极度恐慌', color: '#7f1d1d' };
   if (value <= 40) return { label: '恐慌', color: '#dc2626' };
@@ -72,11 +62,26 @@ const getFearGreedGrade = (value: number): { label: string; color: string } => {
   return { label: '极度贪婪', color: '#14532d' };
 };
 
+function getChartColors() {
+  const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  return {
+    textColor: isDark ? '#64748b' : '#94a3b8',
+    gridColor: isDark ? 'rgba(51, 65, 85, 0.5)' : 'rgba(226, 232, 240, 0.8)',
+    borderColor: isDark ? '#334155' : '#e2e8f0',
+    crosshairColor: isDark ? '#94a3b8' : '#64748b',
+  };
+}
+
 export default function IndicatorDetail() {
   const { id } = useParams<{ id: string }>();
   const [indicator, setIndicator] = useState<Indicator | null>(null);
   const [values, setValues] = useState<IndicatorValue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+
+  const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setChartContainer(node);
+  }, []);
 
   useEffect(() => {
     if (id) {
@@ -99,7 +104,7 @@ export default function IndicatorDetail() {
   const fetchValues = async (indicatorId: number) => {
     try {
       const response = await axios.get(`/api/v1/indicators/${indicatorId}/values?limit=500`);
-      const sorted = response.data.sort((a: IndicatorValue, b: IndicatorValue) => 
+      const sorted = response.data.sort((a: IndicatorValue, b: IndicatorValue) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
       setValues(sorted);
@@ -110,17 +115,83 @@ export default function IndicatorDetail() {
 
   const isFearGreed = indicator?.template?.indicator_type === 'fear_greed' || indicator?.template?.id === 'BTC_FEAR_GREED';
 
-  const chartData = useMemo(() => {
-    return values.map(v => ({
-      date: v.date,
-      dateStr: dayjs(v.date).format('MM-DD'),
+  const indicatorColor = useMemo(() => {
+    if (!indicator) return '#6366f1';
+    const config = typeConfig[indicator.indicator_type] || typeConfig['metric'];
+    return config.color;
+  }, [indicator]);
+
+  // Single effect: create chart + set data
+  useEffect(() => {
+    if (!chartContainer || values.length === 0) return;
+
+    const colors = getChartColors();
+
+    const chart = createChart(chartContainer, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.textColor,
+        fontFamily: "'Inter', -apple-system, sans-serif",
+      },
+      grid: {
+        vertLines: { color: colors.gridColor },
+        horzLines: { color: colors.gridColor },
+      },
+      width: chartContainer.clientWidth,
+      height: 350,
+      crosshair: {
+        vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+        horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+    });
+
+    const series = chart.addSeries(AreaSeries, {
+      lineColor: indicatorColor,
+      topColor: `${indicatorColor}40`,
+      bottomColor: `${indicatorColor}05`,
+      lineWidth: 2,
+      priceFormat: {
+        type: 'price',
+        precision: 2,
+        minMove: 0.01,
+      },
+    });
+
+    const chartData = values.map(v => ({
+      time: v.date as string,
       value: v.value,
-      grade: v.grade,
-      gradeLabel: v.grade_label,
-      valueText: v.value_text,
-      extraData: v.extra_data,
     }));
-  }, [values]);
+
+    series.setData(chartData);
+
+    // Reference lines for Fear & Greed
+    if (isFearGreed) {
+      series.createPriceLine({ price: 20, color: 'rgba(220, 38, 38, 0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '极度恐慌' });
+      series.createPriceLine({ price: 50, color: 'rgba(100, 116, 139, 0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '中性' });
+      series.createPriceLine({ price: 80, color: 'rgba(22, 163, 74, 0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '极度贪婪' });
+    }
+
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      chart.applyOptions({ width: chartContainer.clientWidth });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [chartContainer, values, indicatorColor, isFearGreed]);
 
   const stats = useMemo(() => {
     if (values.length === 0) return null;
@@ -129,7 +200,7 @@ export default function IndicatorDetail() {
     const max = Math.max(...allValues);
     const min = Math.min(...allValues);
     const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
-    
+
     return {
       latest: latest.value,
       latestGrade: latest.grade,
@@ -217,33 +288,11 @@ export default function IndicatorDetail() {
                 {stats.latest.toFixed(1)}
               </div>
               {latestFearGreed ? (
-                <div
-                  style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    background: `${latestFearGreed.color}20`,
-                    color: latestFearGreed.color,
-                    display: 'inline-block',
-                    marginTop: '8px',
-                  }}
-                >
+                <div style={{ fontSize: '14px', fontWeight: 600, padding: '6px 14px', borderRadius: '20px', background: `${latestFearGreed.color}20`, color: latestFearGreed.color, display: 'inline-block', marginTop: '8px' }}>
                   {latestFearGreed.label}
                 </div>
               ) : latestGrade ? (
-                <div
-                  style={{
-                    fontSize: '14px',
-                    fontWeight: 600,
-                    padding: '6px 14px',
-                    borderRadius: '20px',
-                    background: latestGrade.bg,
-                    color: latestGrade.color,
-                    display: 'inline-block',
-                    marginTop: '8px',
-                  }}
-                >
+                <div style={{ fontSize: '14px', fontWeight: 600, padding: '6px 14px', borderRadius: '20px', background: latestGrade.bg, color: latestGrade.color, display: 'inline-block', marginTop: '8px' }}>
                   {latestGrade.label}
                 </div>
               ) : null}
@@ -254,115 +303,39 @@ export default function IndicatorDetail() {
 
       {/* Stats Cards */}
       {stats && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '16px',
-            marginBottom: '24px',
-          }}
-        >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
             { label: '最大值', value: stats.max.toFixed(1), color: '#22c55e' },
             { label: '最小值', value: stats.min.toFixed(1), color: '#ef4444' },
             { label: '平均值', value: stats.avg, color: '#6366f1' },
             { label: '数据点数', value: `${stats.count} 天`, color: '#f59e0b' },
           ].map((stat) => (
-            <div
-              key={stat.label}
-              style={{
-                background: 'var(--bg-primary)',
-                borderRadius: '16px',
-                padding: '16px 20px',
-                border: '1px solid var(--border-color)',
-              }}
-            >
-              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 6px 0' }}>
-                {stat.label}
-              </p>
-              <p style={{ fontSize: '20px', fontWeight: 700, color: stat.color, margin: 0 }}>
-                {stat.value}
-              </p>
+            <div key={stat.label} style={{ background: 'var(--bg-primary)', borderRadius: '16px', padding: '16px 20px', border: '1px solid var(--border-color)' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: '0 0 6px 0' }}>{stat.label}</p>
+              <p style={{ fontSize: '20px', fontWeight: 700, color: stat.color, margin: 0 }}>{stat.value}</p>
             </div>
           ))}
         </div>
       )}
 
       {/* Chart */}
-      <div
-        style={{
-          background: 'var(--bg-primary)',
-          borderRadius: '20px',
-          padding: '24px',
-          border: '1px solid var(--border-color)',
-          marginBottom: '24px',
-        }}
-      >
+      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
         <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
           历史走势
         </h3>
 
-        {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={350}>
-            <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={config.color} stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor={config.color} stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
-              <XAxis dataKey="dateStr" stroke="var(--text-muted)" fontSize={12} tickMargin={10} />
-              <YAxis 
-                stroke="var(--text-muted)" 
-                fontSize={12} 
-                domain={['auto', 'auto']}
-                tickFormatter={(value) => `${value}`}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--bg-primary)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '8px',
-                }}
-                formatter={(value: number) => [value.toFixed(2), '数值']}
-                labelFormatter={(label) => label}
-              />
-              <ReferenceLine y={0} stroke="var(--text-muted)" strokeDasharray="3 3" />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={config.color}
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#chartGradient)"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div
-            style={{
-              height: '350px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--text-muted)',
-            }}
-          >
-            暂无历史数据
-          </div>
-        )}
+        <div style={{ position: 'relative', width: '100%', height: '350px' }}>
+          <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+          {values.length === 0 && (
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
+              暂无历史数据
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Recent Values Table */}
-      <div
-        style={{
-          background: 'var(--bg-primary)',
-          borderRadius: '20px',
-          padding: '24px',
-          border: '1px solid var(--border-color)',
-        }}
-      >
+      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)' }}>
         <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
           近期数据
         </h3>
@@ -372,50 +345,10 @@ export default function IndicatorDetail() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-secondary)' }}>
-                  <th
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    日期
-                  </th>
-                  <th
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    数值
-                  </th>
-                  <th
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'center',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    档位
-                  </th>
-                  <th
-                    style={{
-                      padding: '12px 16px',
-                      textAlign: 'left',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      color: 'var(--text-secondary)',
-                    }}
-                  >
-                    说明
-                  </th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>日期</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>数值</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>档位</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>说明</th>
                 </tr>
               </thead>
               <tbody>
@@ -423,41 +356,19 @@ export default function IndicatorDetail() {
                   const grade = v.grade ? gradeConfig[v.grade] : null;
                   const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
                   const displayGrade = isFearGreed ? fearGreedGrade : grade;
-                  
+
                   return (
-                    <tr
-                      key={v.id}
-                      style={{
-                        borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none',
-                      }}
-                    >
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>
-                        {v.date}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {v.value.toFixed(2)}
-                      </td>
+                    <tr key={v.id} style={{ borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none' }}>
+                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>{v.date}</td>
+                      <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{v.value.toFixed(2)}</td>
                       <td style={{ padding: '14px 16px', textAlign: 'center' }}>
                         {displayGrade ? (
-                          <span
-                            style={{
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              padding: '4px 10px',
-                              borderRadius: '20px',
-                              background: `${displayGrade.color}20`,
-                              color: displayGrade.color,
-                            }}
-                          >
+                          <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: `${displayGrade.color}20`, color: displayGrade.color }}>
                             {displayGrade.label}
                           </span>
-                        ) : (
-                          '-'
-                        )}
+                        ) : '-'}
                       </td>
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                        {v.value_text || '-'}
-                      </td>
+                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>{v.value_text || '-'}</td>
                     </tr>
                   );
                 })}
