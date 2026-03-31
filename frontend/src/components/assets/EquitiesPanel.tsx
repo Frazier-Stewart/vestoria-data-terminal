@@ -247,6 +247,9 @@ export default function EquitiesPanel() {
         asset_type: 'equity',
         exchange: stock.exchange || 'US',
         currency: stock.currency || 'USD',
+        data_source: 'yfinance',
+        source_symbol: stock.symbol,
+        is_active: true,
       });
       
       setAddedSymbols((prev) => new Set([...prev, stock.symbol]));
