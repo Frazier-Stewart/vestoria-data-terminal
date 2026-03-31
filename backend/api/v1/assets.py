@@ -1,18 +1,17 @@
-"""Asset API routes."""
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+"""
+Assets API - 标的资产搜索与筛选
+"""
 
-from app.core.database import get_db
-from app.models.asset import Asset
-from app.schemas.asset import AssetCreate, AssetUpdate, AssetResponse
-from app.services.yfinance_search import yfinance_service
+from fastapi import APIRouter, Query
+from typing import List, Optional
+from pydantic import BaseModel
+
+from services.yfinance_search import yfinance_service
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
-# ============ Pydantic Models for Search ============
+# ============ Pydantic Models ============
 
 class StockInfoResponse(BaseModel):
     """股票信息响应"""
@@ -25,6 +24,9 @@ class StockInfoResponse(BaseModel):
     price: Optional[float] = None
     currency: str = "USD"
     exchange: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
 
 
 class SectorResponse(BaseModel):
@@ -50,77 +52,9 @@ class SearchResponse(BaseModel):
     count: int
 
 
-# ============ Original CRUD Endpoints ============
+# ============ API Endpoints ============
 
-@router.post("", response_model=AssetResponse)
-def create_asset(asset: AssetCreate, db: Session = Depends(get_db)):
-    """Create a new asset."""
-    # Check if asset already exists
-    db_asset = db.query(Asset).filter(Asset.id == asset.id).first()
-    if db_asset:
-        raise HTTPException(status_code=400, detail="Asset already exists")
-    
-    db_asset = Asset(**asset.model_dump())
-    db.add(db_asset)
-    db.commit()
-    db.refresh(db_asset)
-    return db_asset
-
-
-@router.get("", response_model=List[AssetResponse])
-def list_assets(
-    asset_type: str = None,
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db)
-):
-    """List all assets."""
-    query = db.query(Asset)
-    if asset_type:
-        query = query.filter(Asset.asset_type == asset_type)
-    return query.offset(skip).limit(limit).all()
-
-
-@router.get("/{asset_id}", response_model=AssetResponse)
-def get_asset(asset_id: str, db: Session = Depends(get_db)):
-    """Get asset by ID."""
-    asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return asset
-
-
-@router.put("/{asset_id}", response_model=AssetResponse)
-def update_asset(asset_id: str, asset_update: AssetUpdate, db: Session = Depends(get_db)):
-    """Update an asset."""
-    asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    
-    update_data = asset_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(asset, field, value)
-    
-    db.commit()
-    db.refresh(asset)
-    return asset
-
-
-@router.delete("/{asset_id}")
-def delete_asset(asset_id: str, db: Session = Depends(get_db)):
-    """Delete an asset."""
-    asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    
-    db.delete(asset)
-    db.commit()
-    return {"message": "Asset deleted successfully"}
-
-
-# ============ NEW: Search Endpoints ============
-
-@router.get("/search/yfinance", response_model=SearchResponse)
+@router.get("/search", response_model=SearchResponse)
 async def search_stocks(
     q: str = Query(..., description="搜索关键词 (代码或名称)"),
     limit: int = Query(20, ge=1, le=100, description="返回数量限制")
