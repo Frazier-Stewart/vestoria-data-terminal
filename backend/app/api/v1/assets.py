@@ -178,7 +178,7 @@ def create_asset(asset: AssetCreate, db: Session = Depends(get_db)):
     # Check if asset already exists
     db_asset = db.query(Asset).filter(Asset.id == asset.id).first()
     if db_asset:
-        raise HTTPException(status_code=400, detail="Asset already exists")
+        raise HTTPException(status_code=409, detail="Asset already exists")
     
     db_asset = Asset(**asset.model_dump())
     db.add(db_asset)

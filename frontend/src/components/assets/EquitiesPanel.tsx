@@ -253,7 +253,7 @@ export default function EquitiesPanel() {
     } catch (error) {
       console.error('Failed to add asset:', error);
       // 如果已经存在（409），也算成功
-      if (axios.isAxiosError(error) && error.response?.status === 400) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
         setAddedSymbols((prev) => new Set([...prev, stock.symbol]));
       }
     } finally {
