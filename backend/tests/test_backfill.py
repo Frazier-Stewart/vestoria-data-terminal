@@ -6,7 +6,8 @@ Usage:
     python tests/test_backfill.py
 """
 import sys
-sys.path.insert(0, '/home/linuxuser/.openclaw/workspace-vestoria/projects/data-terminal/backend')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from datetime import date, timedelta
 from app.core.database import SessionLocal

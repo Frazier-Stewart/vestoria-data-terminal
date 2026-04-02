@@ -16,6 +16,7 @@ dependencies = [
     "httpx>=0.25.0",
     "python-dateutil>=2.8.0",
     "apscheduler>=3.10.0",
+    "pysocks>=1.7.0",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,9 @@ dev = [
 [tool.black]
 line-length = 100
 target-version = ['py310']
+
+[tool.setuptools]
+packages = ["app"]
 
 [tool.ruff]
 line-length = 100

@@ -44,6 +44,7 @@ DEFAULT_JOBS = [
         "id": "update_crypto",
         "name": "加密货币每日更新 (BTC)",
         "func": "_job_update_crypto",
+        "trigger_type": "cron",
         "hour": 9,
         "minute": 0,
         "description": "更新加密货币价格 + BTC 恐慌贪婪指数",
@@ -52,9 +53,20 @@ DEFAULT_JOBS = [
         "id": "update_us_market",
         "name": "美股每日更新 (SPY/VIX)",
         "func": "_job_update_us_market",
+        "trigger_type": "cron",
         "hour": 6,
         "minute": 0,
         "description": "更新美股/ETF 价格 + VIX 波动率指数",
+    },
+    {
+        "id": "sync_sectors_weekly",
+        "name": "Sector/Industry 每周同步",
+        "func": "_job_sync_sectors_weekly",
+        "trigger_type": "cron",
+        "day_of_week": "sun",
+        "hour": 3,
+        "minute": 0,
+        "description": "每周同步 Sector/Industry 及龙头公司数据",
     },
 ]
 
@@ -109,10 +121,21 @@ class DataScheduler:
         job_funcs = {
             "_job_update_crypto": self._job_update_crypto,
             "_job_update_us_market": self._job_update_us_market,
+            "_job_sync_sectors_weekly": self._job_sync_sectors_weekly,
         }
         for job_def in DEFAULT_JOBS:
             func = job_funcs[job_def["func"]]
-            trigger = CronTrigger(hour=job_def["hour"], minute=job_def["minute"], timezone=TZ)
+            if job_def.get("trigger_type") == "cron":
+                trigger_kwargs = {"timezone": TZ}
+                if "day_of_week" in job_def:
+                    trigger_kwargs["day_of_week"] = job_def["day_of_week"]
+                if "hour" in job_def:
+                    trigger_kwargs["hour"] = job_def["hour"]
+                if "minute" in job_def:
+                    trigger_kwargs["minute"] = job_def["minute"]
+                trigger = CronTrigger(**trigger_kwargs)
+            else:
+                trigger = CronTrigger(hour=job_def["hour"], minute=job_def["minute"], timezone=TZ)
             self._scheduler.add_job(
                 func,
                 trigger=trigger,
@@ -122,8 +145,8 @@ class DataScheduler:
                 misfire_grace_time=3600,  # allow 1h late execution
             )
             logger.info(
-                "Registered job %s → %02d:%02d %s",
-                job_def["id"], job_def["hour"], job_def["minute"], TZ,
+                "Registered job %s → %s",
+                job_def["id"], str(trigger),
             )
 
     # ------------------------------------------------------------------
@@ -208,6 +231,25 @@ class DataScheduler:
 
             self._finish_run_log(run_log, "success", results)
             logger.info("[%s] Done: %s", job_id, results)
+
+        except Exception as e:
+            logger.exception("[%s] Failed", job_id)
+            self._finish_run_log(run_log, "error", results, str(e))
+
+    def _job_sync_sectors_weekly(self):
+        """Sync sectors, industries and top companies from yfinance."""
+        job_id = "sync_sectors_weekly"
+        run_log = self._start_run_log(job_id, "Sector/Industry 每周同步")
+        results: Dict[str, Any] = {}
+
+        try:
+            from app.services.sector_sync import sync_all
+
+            logger.info("[%s] Starting sector sync...", job_id)
+            results = sync_all()
+            status = "success" if all(r["status"] == "success" for r in results.values()) else "partial"
+            self._finish_run_log(run_log, status, results)
+            logger.info("[%s] Done", job_id)
 
         except Exception as e:
             logger.exception("[%s] Failed", job_id)
@@ -418,6 +460,7 @@ class DataScheduler:
         job_funcs = {
             "update_crypto": self._job_update_crypto,
             "update_us_market": self._job_update_us_market,
+            "sync_sectors_weekly": self._job_sync_sectors_weekly,
         }
         func = job_funcs.get(job_id)
         if not func:

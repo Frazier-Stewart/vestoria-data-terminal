@@ -6,7 +6,8 @@ Usage:
     python tests/test_indicators.py
 """
 import sys
-sys.path.insert(0, '/home/linuxuser/.openclaw/workspace-vestoria/projects/data-terminal/backend')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import asyncio
 from datetime import date, timedelta

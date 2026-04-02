@@ -62,7 +62,7 @@ backend/
 │
 ├── tests/
 │
-└── pyproject.toml
+└── pyproject.toml         # Python 项目配置
 ```
 
 ---

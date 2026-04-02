@@ -86,7 +86,7 @@ backend/
 ├── data/
 │   └── data_terminal.db
 ├── tests/
-└── pyproject.toml
+└── pyproject.toml         # Python 项目配置
 ```
 
 ---

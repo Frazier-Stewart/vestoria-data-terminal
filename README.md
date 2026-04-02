@@ -71,9 +71,9 @@ data-terminal/
 │   │   ├── fetchers/      # 数据获取器
 │   │   └── main.py        # FastAPI 入口
 │   ├── data/              # 数据存储
-│   └── tests/             # 测试
+│   ├── tests/             # 测试
+│   └── pyproject.toml     # Python 项目配置
 ├── docs/                  # 文档
-└── pyproject.toml
 ```
 
 ## 开发计划
