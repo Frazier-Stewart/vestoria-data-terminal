@@ -129,14 +129,14 @@ export default function EquitiesPanel() {
 
   // 搜索股票
   const searchStocks = async () => {
-    if (!searchQuery.trim() && !selectedSector) return;
-    
+    if (!searchQuery.trim() && !selectedSector && !selectedIndustry) return;
+
     setLoading(true);
     setHasSearched(true);
-    
+
     try {
       let searchResults: YFinanceSearchResult[] = [];
-      
+
       // 如果有搜索词，使用搜索 API
       if (searchQuery.trim()) {
         const response = await axios.get(`${API_BASE_URL}/api/v1/assets/search/yfinance`, {
@@ -147,7 +147,7 @@ export default function EquitiesPanel() {
         });
         searchResults = response.data.results || [];
       }
-      
+
       // 如果有选择 Sector，获取该板块龙头
       if (selectedSector) {
         const sectorKeyMap: Record<string, string> = {
@@ -164,11 +164,11 @@ export default function EquitiesPanel() {
           'Utilities': 'utilities',
         };
         const yfKey = sectorKeyMap[selectedSector] || selectedSector.toLowerCase().replace(/\s+/g, '-');
-        
+
         const response = await axios.get(`${API_BASE_URL}/api/v1/assets/sectors/${yfKey}/top-companies`, {
           params: { count: 50 },
         });
-        
+
         if (!searchQuery.trim()) {
           // 只有 sector 筛选时，直接使用板块结果
           searchResults = response.data || [];
@@ -178,7 +178,23 @@ export default function EquitiesPanel() {
           searchResults = searchResults.filter((s) => sectorSymbols.has(s.symbol));
         }
       }
-      
+
+      // 如果有选择 Industry，获取该子行业龙头
+      if (selectedIndustry) {
+        const response = await axios.get(`${API_BASE_URL}/api/v1/assets/industries/${selectedIndustry}/top-companies`, {
+          params: { count: 50 },
+        });
+
+        if (!searchQuery.trim() && !selectedSector) {
+          // 只有 industry 筛选时，直接使用行业结果
+          searchResults = response.data || [];
+        } else {
+          // 合并结果（去重）
+          const industrySymbols = new Set((response.data || []).map((s: YFinanceSearchResult) => s.symbol));
+          searchResults = searchResults.filter((s) => industrySymbols.has(s.symbol));
+        }
+      }
+
       // 客户端排序
       const sortedResults = sortResults(searchResults, sortBy, sortOrder);
       setResults(sortedResults);
@@ -328,7 +344,7 @@ export default function EquitiesPanel() {
           </div>
           <button
             onClick={searchStocks}
-            disabled={loading}
+            disabled={loading || (!searchQuery.trim() && !selectedSector && !selectedIndustry)}
             style={{
               display: 'flex',
               alignItems: 'center',
