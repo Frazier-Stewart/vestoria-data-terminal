@@ -272,7 +272,8 @@ class YFinanceSearchService:
         """
         获取板块内市值最高的公司
 
-        使用 yfinance.Sector.top_companies 获取板块龙头
+        使用 yfinance.Sector.top_companies 获取板块龙头。
+        直接使用 DataFrame 中的 name，避免逐个 symbol 调用 Ticker 导致过慢。
         """
         cache_key = f"top_sector:{sector_key}:{count}:{sort_by}"
         cached = _get_from_cache(cache_key)
@@ -288,27 +289,29 @@ class YFinanceSearchService:
 
             stocks = []
             if hasattr(top_companies, 'iterrows'):
-                for symbol, _ in list(top_companies.iterrows())[:count]:
-                    stock = cls._get_stock_info(symbol)
-                    if stock:
-                        # 补充 sector 信息
-                        if not stock.sector:
-                            stock.sector = cls.SECTOR_KEY_MAP.get(sector_key)
-                        stocks.append(stock)
+                for symbol, row in list(top_companies.iterrows())[:count]:
+                    name = row.get('name', symbol) if hasattr(row, 'get') else getattr(row, 'name', symbol)
+                    stocks.append(StockInfo(
+                        symbol=str(symbol),
+                        name=str(name),
+                        sector=cls.SECTOR_KEY_MAP.get(sector_key),
+                        market_cap=None,
+                        trailing_pe=None,
+                        price=None,
+                        currency='USD',
+                        exchange=None,
+                    ))
 
-            # 客户端排序（默认按市值降序）
+            # 客户端排序
             def sort_key(stock):
-                if sort_by == 'market_cap':
-                    return stock.market_cap or 0
-                elif sort_by == 'trailing_pe':
-                    return stock.trailing_pe or float('inf')
-                elif sort_by == 'name':
+                if sort_by == 'name':
                     return stock.name
                 elif sort_by == 'ticker':
                     return stock.symbol
-                return stock.market_cap or 0
+                return stock.symbol
 
-            stocks = sorted(stocks, key=sort_key, reverse=True)
+            if sort_by in ('name', 'ticker'):
+                stocks = sorted(stocks, key=sort_key, reverse=False)
             _set_cache(cache_key, stocks)
             return stocks
 
@@ -327,21 +330,29 @@ class YFinanceSearchService:
         cached = _get_from_cache(cache_key)
         if cached:
             return cached
-        
+
         try:
             industry = yf.Industry(industry_key)
             top_companies = industry.top_companies
-            
+
             stocks = []
             if hasattr(top_companies, 'iterrows'):
-                for symbol, _ in list(top_companies.iterrows())[:count]:
-                    stock = cls._get_stock_info(symbol)
-                    if stock:
-                        stocks.append(stock)
-            
+                for symbol, row in list(top_companies.iterrows())[:count]:
+                    name = row.get('name', symbol) if hasattr(row, 'get') else getattr(row, 'name', symbol)
+                    stocks.append(StockInfo(
+                        symbol=str(symbol),
+                        name=str(name),
+                        industry=industry_key,
+                        market_cap=None,
+                        trailing_pe=None,
+                        price=None,
+                        currency='USD',
+                        exchange=None,
+                    ))
+
             _set_cache(cache_key, stocks)
             return stocks
-            
+
         except Exception as e:
             print(f"Failed to get top companies for industry {industry_key}: {e}")
             return []
