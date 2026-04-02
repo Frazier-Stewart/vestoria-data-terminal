@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Filter, ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
 import axios from 'axios';
 import {
@@ -51,9 +51,6 @@ export default function EquitiesPanel() {
   // 添加状态
   const [addingSymbol, setAddingSymbol] = useState<string | null>(null);
   const [addedSymbols, setAddedSymbols] = useState<Set<string>>(new Set());
-
-  // 防抖定时器
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // ============ Effects ============
   // 加载 Sector 列表
@@ -264,25 +261,6 @@ export default function EquitiesPanel() {
     }
   };
 
-  // ============ Event Handlers ============
-  // 防抖搜索
-  const debouncedSearch = useCallback(() => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    searchTimeoutRef.current = setTimeout(() => {
-      searchStocks();
-    }, 300);
-  }, [searchQuery, selectedSector, selectedIndustry, sortBy, sortOrder]);
-
-  // 立即搜索
-  const handleSearch = () => {
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    searchStocks();
-  };
-
   // 格式化市值
   const formatMarketCap = (value?: number) => {
     if (!value) return '-';
@@ -336,11 +314,8 @@ export default function EquitiesPanel() {
               type="text"
               placeholder="搜索股票代码或名称 (如: AAPL, Apple)..."
               value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                debouncedSearch();
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && searchStocks()}
               style={{
                 flex: 1,
                 border: 'none',
@@ -352,7 +327,7 @@ export default function EquitiesPanel() {
             />
           </div>
           <button
-            onClick={handleSearch}
+            onClick={searchStocks}
             disabled={loading}
             style={{
               display: 'flex',
