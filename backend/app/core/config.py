@@ -20,7 +20,8 @@ class Settings(BaseSettings):
     SCHEDULER_ENABLED: bool = True  # Set to False to disable daily auto-updates
     
     # Proxy (e.g. socks5://127.0.0.1:1082 or http://127.0.0.1:1089)
-    PROXY_URL: Optional[str] = "socks5://127.0.0.1:1082"
+    # Set in .env file to enable, leave empty to disable
+    PROXY_URL: Optional[str] = None
     
     class Config:
         env_file = ".env"

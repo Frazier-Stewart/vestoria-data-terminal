@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Star, Plus, TrendingUp, TrendingDown, Trash2, ExternalLink, RefreshCw, AlertCircle } from 'lucide-react';
+import { Star, Plus, TrendingUp, TrendingDown, Trash2, ExternalLink, RefreshCw, AlertCircle, Download, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
@@ -12,7 +12,6 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 // Constants
 const AUTO_REFRESH_INTERVAL = 60 * 1000; // 60 seconds
-const FRESHNESS_THRESHOLD = 24 * 60 * 60 * 1000; // 24 hours
 
 interface Asset {
   id: string;
@@ -44,6 +43,13 @@ interface MergedAsset extends Asset {
   price?: PriceInfo;
 }
 
+interface BackfillResult {
+  asset_id: string;
+  status: string;
+  records: number;
+  message: string;
+}
+
 export default function Watchlist() {
   const [assets, setAssets] = useState<MergedAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +57,12 @@ export default function Watchlist() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [backfillingIds, setBackfillingIds] = useState<Set<string>>(new Set());
+  const [backfillResults, setBackfillResults] = useState<Record<string, string>>({});
+
+  // Count assets without price data
+  const missingPriceCount = assets.filter(a => !a.price).length;
+  const hasMissingPrices = missingPriceCount > 0;
 
   // Load watchlist (assets + prices)
   const loadWatchlist = useCallback(async () => {
@@ -119,6 +131,52 @@ export default function Watchlist() {
       setRefreshing(false);
     }
   }, [assets.length, priceLoading]);
+
+  // Backfill single asset
+  const backfillAsset = useCallback(async (assetId: string) => {
+    if (backfillingIds.has(assetId)) return;
+    
+    setBackfillingIds(prev => new Set([...prev, assetId]));
+    setBackfillResults(prev => ({ ...prev, [assetId]: '' }));
+    
+    try {
+      const response = await axios.post<BackfillResult>(
+        `${API_BASE_URL}/api/v1/update/backfill/${assetId}?days=365`
+      );
+      
+      setBackfillResults(prev => ({ 
+        ...prev, 
+        [assetId]: `✅ 已获取 ${response.data.records} 条记录` 
+      }));
+      
+      // Refresh prices after backfill
+      await refreshPrices();
+    } catch (error) {
+      console.error(`Failed to backfill ${assetId}:`, error);
+      setBackfillResults(prev => ({ 
+        ...prev, 
+        [assetId]: '❌ 获取失败，请重试' 
+      }));
+    } finally {
+      setBackfillingIds(prev => {
+        const next = new Set(prev);
+        next.delete(assetId);
+        return next;
+      });
+    }
+  }, [backfillingIds, refreshPrices]);
+
+  // Backfill all missing assets
+  const backfillAllMissing = useCallback(async () => {
+    const missingAssets = assets.filter(a => !a.price);
+    if (missingAssets.length === 0) return;
+    
+    for (const asset of missingAssets) {
+      await backfillAsset(asset.id);
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }, [assets, backfillAsset]);
 
   // Initial load
   useEffect(() => {
@@ -289,6 +347,66 @@ export default function Watchlist() {
         </div>
       </div>
 
+      {/* Missing Data Alert */}
+      {hasMissingPrices && (
+        <div
+          style={{
+            marginBottom: '24px',
+            padding: '16px 20px',
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertCircle size={20} color="#f59e0b" />
+            <div>
+              <p style={{ margin: '0 0 2px 0', fontSize: '14px', fontWeight: 600, color: '#f59e0b' }}>
+                {missingPriceCount} 个标的缺少价格数据
+              </p>
+              <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
+                点击右侧按钮获取历史价格数据
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={backfillAllMissing}
+            disabled={backfillingIds.size > 0}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: '#f59e0b',
+              color: 'white',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: backfillingIds.size > 0 ? 'not-allowed' : 'pointer',
+              opacity: backfillingIds.size > 0 ? 0.7 : 1,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {backfillingIds.size > 0 ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                获取中...
+              </>
+            ) : (
+              <>
+                <Download size={16} />
+                获取全部数据
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Watchlist Content */}
       {loading ? (
         <div
@@ -387,6 +505,9 @@ export default function Watchlist() {
                 const typeStyle = getAssetTypeColor(asset.asset_type);
                 const change = asset.price ? formatChange(asset.price.change, asset.price.change_percent) : null;
                 const freshness = getFreshnessIndicator(asset.price?.data_freshness);
+                const isBackfilling = backfillingIds.has(asset.id);
+                const backfillResult = backfillResults[asset.id];
+                const hasNoPrice = !asset.price;
                 
                 return (
                   <tr
@@ -472,10 +593,35 @@ export default function Watchlist() {
                             {dayjs(asset.price.date).format('MM-DD')}
                           </p>
                         </div>
-                      ) : (
-                        <span style={{ color: 'var(--text-muted)', fontSize: '14px' }}>
-                          无数据
+                      ) : backfillResult ? (
+                        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                          {backfillResult}
                         </span>
+                      ) : (
+                        <button
+                          onClick={() => backfillAsset(asset.id)}
+                          disabled={isBackfilling}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '6px 12px',
+                            borderRadius: '6px',
+                            border: '1px dashed var(--border-color)',
+                            background: 'transparent',
+                            color: 'var(--text-muted)',
+                            fontSize: '12px',
+                            cursor: isBackfilling ? 'not-allowed' : 'pointer',
+                            opacity: isBackfilling ? 0.7 : 1,
+                          }}
+                        >
+                          {isBackfilling ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Download size={14} />
+                          )}
+                          获取数据
+                        </button>
                       )}
                     </td>
 

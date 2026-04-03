@@ -253,6 +253,7 @@ export default function EquitiesPanel() {
     
     setAddingSymbol(stock.symbol);
     try {
+      // Step 1: Create asset
       await axios.post(`${API_BASE_URL}/api/v1/assets`, {
         id: stock.symbol,
         symbol: stock.symbol,
@@ -266,6 +267,15 @@ export default function EquitiesPanel() {
       });
       
       setAddedSymbols((prev) => new Set([...prev, stock.symbol]));
+      
+      // Step 2: Auto-fetch price data (background, don't block UI)
+      try {
+        await axios.post(`${API_BASE_URL}/api/v1/update/backfill/${stock.symbol}?days=365`);
+        console.log(`Auto-fetched price data for ${stock.symbol}`);
+      } catch (backfillError) {
+        // Don't block UI if backfill fails
+        console.warn(`Auto-backfill failed for ${stock.symbol}:`, backfillError);
+      }
     } catch (error) {
       console.error('Failed to add asset:', error);
       // 如果已经存在（409），也算成功
