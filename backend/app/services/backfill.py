@@ -1,4 +1,6 @@
 """Historical data backfill utilities."""
+import os
+import time
 import yfinance as yf
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -8,6 +10,14 @@ from sqlalchemy.orm import Session
 from app.models.asset import Asset
 from app.models.price_data import PriceData
 from app.core.database import SessionLocal
+from app.core.config import settings
+
+
+# Set proxy environment variables if configured
+if settings.PROXY_URL:
+    os.environ['HTTP_PROXY'] = settings.PROXY_URL
+    os.environ['HTTPS_PROXY'] = settings.PROXY_URL
+    print(f"Proxy configured: {settings.PROXY_URL}")
 
 
 def fetch_historical_prices(
