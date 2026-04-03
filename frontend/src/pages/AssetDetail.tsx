@@ -5,6 +5,8 @@ import { createChart, CandlestickSeries, HistogramSeries, ColorType } from 'ligh
 import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle } from 'lucide-react';
 import dayjs from 'dayjs';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 interface Asset {
   id: string;
   symbol: string;
@@ -108,7 +110,7 @@ export default function AssetDetail() {
 
   const fetchAsset = async (assetId: string) => {
     try {
-      const response = await axios.get(`/api/v1/assets/${assetId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/assets/${assetId}`);
       setAsset(response.data);
     } catch (error) {
       console.error('Failed to fetch asset:', error);
@@ -119,7 +121,7 @@ export default function AssetDetail() {
 
   const fetchPrices = async (assetId: string) => {
     try {
-      const response = await axios.get(`/api/v1/prices?asset_id=${assetId}&limit=9999`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/prices?asset_id=${assetId}&limit=9999`);
       const sorted = response.data.sort((a: PriceData, b: PriceData) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
