@@ -39,7 +39,8 @@ def init_indicators():
         init_indicator_templates(db)
         
         # Create default indicator instances if not exists
-        # BTC Fear & Greed (使用 BTCUSDT 作为关联资产)
+        
+        # 1. BTC Fear & Greed (使用 BTCUSDT 作为关联资产)
         btc_asset = db.query(Asset).filter(Asset.id == "BTCUSDT").first()
         fg_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "BTC_FEAR_GREED").first()
         
@@ -59,6 +60,43 @@ def init_indicators():
                 db.add(indicator)
                 db.commit()
                 logging.getLogger("main").info("Created BTC Fear & Greed indicator")
+        
+        # 2. VIX 波动率指数
+        vix_asset = db.query(Asset).filter(Asset.id == "^VIX").first()
+        if not vix_asset:
+            vix_asset = Asset(
+                id="^VIX",
+                symbol="^VIX",
+                name="CBOE Volatility Index",
+                asset_type="index",
+                exchange="CBOE",
+                currency="USD",
+                data_source="yfinance",
+                source_symbol="^VIX",
+                is_active=True,
+                is_watched=False
+            )
+            db.add(vix_asset)
+            db.commit()
+            logging.getLogger("main").info("Created VIX asset")
+        
+        vix_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "VIX").first()
+        if vix_asset and vix_template:
+            existing = db.query(Indicator).filter(
+                Indicator.template_id == "VIX",
+                Indicator.asset_id == "^VIX"
+            ).first()
+            if not existing:
+                indicator = Indicator(
+                    template_id="VIX",
+                    asset_id="^VIX",
+                    name="VIX波动率指数",
+                    params={"symbol": "^VIX"},
+                    is_active=True
+                )
+                db.add(indicator)
+                db.commit()
+                logging.getLogger("main").info("Created VIX indicator")
         
         logging.getLogger("main").info("Indicators initialized")
     except Exception as e:
