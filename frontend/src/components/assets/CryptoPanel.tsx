@@ -344,10 +344,12 @@ export default function CryptoPanel() {
                   return (
                     <tr
                       key={ticker.symbol}
+                      onClick={() => window.location.href = `/assets/${ticker.symbol}`}
                       style={{
                         borderBottom:
                           index < tickers.length - 1 ? '1px solid var(--border-color)' : 'none',
                         transition: 'background 0.2s',
+                        cursor: 'pointer',
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = 'var(--bg-secondary)';
@@ -411,9 +413,8 @@ export default function CryptoPanel() {
                       </td>
                       <td style={{ ...tdStyle, textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                          <Link
-                            to={`/assets/${ticker.symbol}`}
-                            state={{ from: 'crypto' }}
+                          <button
+                            onClick={(e) => e.stopPropagation()}
                             style={{
                               padding: '6px',
                               borderRadius: '6px',
@@ -428,9 +429,12 @@ export default function CryptoPanel() {
                             title="查看详情"
                           >
                             <ExternalLink size={14} />
-                          </Link>
+                          </button>
                           <button
-                            onClick={() => handleAddToWatchlist(ticker)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAddToWatchlist(ticker);
+                            }}
                             disabled={isAdding || isAdded}
                             style={{
                               display: 'inline-flex',

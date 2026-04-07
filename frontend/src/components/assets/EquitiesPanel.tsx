@@ -543,10 +543,12 @@ export default function EquitiesPanel() {
                     return (
                       <tr
                         key={stock.symbol}
+                        onClick={() => window.location.href = `/assets/${stock.symbol}`}
                         style={{
                           borderBottom:
                             index < predefinedStocks.length - 1 ? '1px solid var(--border-color)' : 'none',
                           transition: 'background 0.2s',
+                          cursor: 'pointer',
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'var(--bg-secondary)';
@@ -649,9 +651,8 @@ export default function EquitiesPanel() {
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                            <Link
-                              to={`/assets/${stock.symbol}`}
-                              state={{ from: 'assets' }}
+                            <button
+                              onClick={(e) => e.stopPropagation()}
                               style={{
                                 padding: '6px',
                                 borderRadius: '6px',
@@ -666,9 +667,12 @@ export default function EquitiesPanel() {
                               title="查看详情"
                             >
                               <ExternalLink size={14} />
-                            </Link>
+                            </button>
                             <button
-                              onClick={() => handleAddToWatchlist(stock)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddToWatchlist(stock);
+                              }}
                               disabled={isAdding || isAdded}
                               style={{
                                 display: 'inline-flex',
@@ -749,10 +753,12 @@ export default function EquitiesPanel() {
                     return (
                       <tr
                         key={stock.symbol}
+                        onClick={() => window.location.href = `/assets/${stock.symbol}`}
                         style={{
                           borderBottom:
                             index < results.length - 1 ? '1px solid var(--border-color)' : 'none',
                           transition: 'background 0.2s',
+                          cursor: 'pointer',
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'var(--bg-secondary)';
@@ -855,9 +861,8 @@ export default function EquitiesPanel() {
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                            <Link
-                              to={`/assets/${stock.symbol}`}
-                              state={{ from: 'assets' }}
+                            <button
+                              onClick={(e) => e.stopPropagation()}
                               style={{
                                 padding: '6px',
                                 borderRadius: '6px',
@@ -872,9 +877,12 @@ export default function EquitiesPanel() {
                               title="查看详情"
                             >
                               <ExternalLink size={14} />
-                            </Link>
+                            </button>
                             <button
-                              onClick={() => handleAddToWatchlist(stock)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddToWatchlist(stock);
+                              }}
                               disabled={isAdding || isAdded}
                               style={{
                                 display: 'inline-flex',

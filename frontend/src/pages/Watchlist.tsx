@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Plus, TrendingUp, TrendingDown, Trash2, ExternalLink, RefreshCw, AlertCircle, Download, Loader2 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -582,10 +582,12 @@ export default function Watchlist() {
                 return (
                   <tr
                     key={asset.id}
+                    onClick={() => window.location.href = `/assets/${asset.id}`}
                     style={{
                       borderBottom:
                         index < filteredAssets.length - 1 ? '1px solid var(--border-color)' : 'none',
                       transition: 'background 0.2s',
+                      cursor: 'pointer',
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.background = 'var(--bg-secondary)';
@@ -670,7 +672,10 @@ export default function Watchlist() {
                         </span>
                       ) : (
                         <button
-                          onClick={() => backfillAsset(asset.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            backfillAsset(asset.id);
+                          }}
                           disabled={isBackfilling}
                           style={{
                             display: 'inline-flex',
@@ -785,9 +790,8 @@ export default function Watchlist() {
                     {/* Actions */}
                     <td style={{ ...tdStyle, textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                        <Link
-                          to={`/assets/${asset.id}`}
-                          state={{ from: 'watchlist' }}
+                        <button
+                          onClick={(e) => e.stopPropagation()}
                           style={{
                             padding: '8px',
                             borderRadius: '8px',
@@ -802,9 +806,12 @@ export default function Watchlist() {
                           title="查看详情"
                         >
                           <ExternalLink size={16} />
-                        </Link>
+                        </button>
                         <button
-                          onClick={() => handleDelete(asset.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(asset.id);
+                          }}
                           disabled={deletingId === asset.id}
                           style={{
                             padding: '8px',
