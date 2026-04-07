@@ -190,7 +190,7 @@ export default function AssetDetail() {
     
     setFillingGap(true);
     try {
-      await axios.post(`${API_BASE_URL}/api/v1/prices/fill-gap/${id}`);
+      await axios.post(`${API_BASE_URL}/api/v1/prices/gap-fill?asset_id=${id}`);
       // 刷新数据
       await fetchPrices(id);
       await checkDataGap(id);
