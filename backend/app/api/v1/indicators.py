@@ -1,7 +1,7 @@
 """Indicator API routes."""
 from datetime import date, datetime, timedelta
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
