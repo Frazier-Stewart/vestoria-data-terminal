@@ -206,13 +206,13 @@ export default function AssetDetail() {
   const handleBackfill = async () => {
     if (!id || !backfillStart || !backfillEnd) return;
     
-    // 验证日期范围（最多5年）
+    // 验证日期范围（最多20年）
     const start = new Date(backfillStart);
     const end = new Date(backfillEnd);
     const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24) + 1;
     
-    if (days > 365 * 5) {
-      alert('日期范围不能超过5年，请重新选择');
+    if (days > 365 * 20) {
+      alert('日期范围不能超过20年，请重新选择');
       return;
     }
     

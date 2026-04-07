@@ -543,8 +543,8 @@ def backfill_price_range(
         raise HTTPException(status_code=400, detail="End date cannot be in the future")
     
     days = (request.end_date - request.start_date).days + 1
-    if days > 365 * 5:  # Max 5 years
-        raise HTTPException(status_code=400, detail="Date range cannot exceed 5 years")
+    if days > 365 * 20:  # Max 20 years to prevent extremely large requests
+        raise HTTPException(status_code=400, detail="Date range cannot exceed 20 years")
     
     try:
         result = update_asset_with_fetcher(
