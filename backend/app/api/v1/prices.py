@@ -298,10 +298,12 @@ def get_live_prices(
         
         # Convert to PriceResponse format
         result = []
+        now = datetime.utcnow()
         for p in prices:
             result.append(PriceResponse(
                 id=0,  # Placeholder, not saved to DB
                 asset_id=asset_id,
+                timestamp=p.get("timestamp") or datetime.combine(p["date"], datetime.min.time()),
                 date=p["date"],
                 interval="1d",
                 open=p.get("open"),
@@ -309,7 +311,7 @@ def get_live_prices(
                 low=p.get("low"),
                 close=p["close"],
                 volume=p.get("volume"),
-                created_at=datetime.utcnow()
+                created_at=now
             ))
         
         return result
