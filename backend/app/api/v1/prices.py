@@ -1,5 +1,5 @@
 """Price API routes."""
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
