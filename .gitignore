@@ -32,6 +32,9 @@ logs/
 data/*.db
 data/*.db.*
 
+# Experiments (keep dir, ignore contents)
+data_explore/binance/skills/
+
 # Test coverage
 htmlcov/
 .coverage
