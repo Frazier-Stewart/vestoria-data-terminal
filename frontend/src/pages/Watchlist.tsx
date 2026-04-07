@@ -181,6 +181,44 @@ export default function Watchlist() {
     }
   }, [assets.length, priceLoading]);
 
+  // Trigger update job based on active category and refresh prices
+  const triggerUpdate = useCallback(async () => {
+    if (priceLoading) return;
+    
+    setPriceLoading(true);
+    setRefreshing(true);
+    try {
+      // Step 1: Determine job based on active category
+      // crypto -> update_crypto, equities/commodities -> update_us_market
+      const jobId = activeCategory === 'crypto' ? 'update_crypto' : 'update_us_market';
+      
+      // Step 2: Trigger the appropriate job
+      await axios.post(`${API_BASE_URL}/api/v1/scheduler/jobs/${jobId}/run`);
+      
+      // Step 3: Wait a bit for the job to process (2 seconds)
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Step 4: Refresh prices
+      const assetIds = assets.map(a => a.id).join(',');
+      const pricesResponse = await axios.get<PriceInfo[]>(
+        `${API_BASE_URL}/api/v1/prices/latest/batch?asset_ids=${assetIds}`
+      );
+      const pricesData = pricesResponse.data || [];
+      
+      const priceMap = new Map(pricesData.map(p => [p.asset_id, p]));
+      setAssets(prev => prev.map(asset => ({
+        ...asset,
+        price: priceMap.get(asset.id) || asset.price
+      })));
+      setLastRefresh(new Date());
+    } catch (error) {
+      console.error('Failed to trigger update:', error);
+    } finally {
+      setPriceLoading(false);
+      setRefreshing(false);
+    }
+  }, [assets, priceLoading, activeCategory]);
+
   // Backfill single asset
   const backfillAsset = useCallback(async (assetId: string) => {
     if (backfillingIds.has(assetId)) return;
@@ -306,6 +344,7 @@ export default function Watchlist() {
   };
 
   // Get freshness indicator
+  // fresh: 0-2 days, stale: 2-5 days, outdated: >5 days
   const getFreshnessIndicator = (freshness?: string) => {
     switch (freshness) {
       case 'fresh':
@@ -331,7 +370,7 @@ export default function Watchlist() {
           {/* Refresh Button */}
           {hasWatchlist && (
             <button
-              onClick={refreshPrices}
+              onClick={triggerUpdate}
               disabled={refreshing}
               style={{
                 display: 'inline-flex',
@@ -348,7 +387,7 @@ export default function Watchlist() {
                 opacity: refreshing ? 0.7 : 1,
                 transition: 'all 0.3s ease',
               }}
-              title="刷新价格"
+              title={activeCategory === 'crypto' ? '触发 update_crypto 任务并刷新价格' : '触发 update_us_market 任务并刷新价格'}
             >
               <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
               刷新
@@ -812,9 +851,9 @@ export default function Watchlist() {
             <AlertCircle size={16} />
             <span>
               价格数据自动每 60 秒刷新一次。
-              <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新
-              <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(1-2天)
-              <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(2天以上)
+              <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新(0-2天)
+              <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(2-5天)
+              <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(5天以上)
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>

@@ -113,10 +113,11 @@ def get_latest_prices_batch(
             change_percent = (change / previous.close) * 100
         
         # Determine data freshness
+        # fresh: 0-2 days, stale: 2-5 days, outdated: >5 days
         days_since_update = (today - latest.date).days
-        if days_since_update == 0:
+        if days_since_update <= 2:
             freshness = "fresh"
-        elif days_since_update <= 2:
+        elif days_since_update <= 5:
             freshness = "stale"
         else:
             freshness = "outdated"
