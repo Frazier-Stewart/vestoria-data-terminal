@@ -5,6 +5,8 @@ import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import Sparkline from '@/components/Sparkline';
+import CategoryTabs from '@/components/assets/CategoryTabs';
+import type { AssetCategory } from '@/types/assets';
 
 // Enable dayjs plugins
 dayjs.extend(relativeTime);
@@ -77,10 +79,27 @@ export default function Watchlist() {
   const [refreshing, setRefreshing] = useState(false);
   const [backfillingIds, setBackfillingIds] = useState<Set<string>>(new Set());
   const [backfillResults, setBackfillResults] = useState<Record<string, string>>({});
+  const [activeCategory, setActiveCategory] = useState<AssetCategory>('equities');
 
-  // Count assets without price data
-  const missingPriceCount = assets.filter(a => !a.price).length;
+  // Filter assets by category
+  const filteredAssets = assets.filter(asset => {
+    const type = asset.asset_type.toLowerCase();
+    switch (activeCategory) {
+      case 'equities':
+        return ['equity', 'etf', 'stock', 'index'].includes(type);
+      case 'crypto':
+        return type === 'crypto';
+      case 'commodities':
+        return type === 'commodity';
+      default:
+        return true;
+    }
+  });
+
+  // Count assets without price data (from filtered)
+  const missingPriceCount = filteredAssets.filter(a => !a.price).length;
   const hasMissingPrices = missingPriceCount > 0;
+  const hasWatchlist = filteredAssets.length > 0;
 
   // Load watchlist (assets + prices + sparklines)
   const loadWatchlist = useCallback(async () => {
@@ -300,8 +319,6 @@ export default function Watchlist() {
     }
   };
 
-  const hasWatchlist = assets.length > 0;
-
   return (
     <div className="animate-fade-in">
       {/* Header */}
@@ -355,6 +372,9 @@ export default function Watchlist() {
           </Link>
         </div>
       </div>
+
+      {/* Category Tabs */}
+      <CategoryTabs activeCategory={activeCategory} onChange={setActiveCategory} />
 
       {/* Missing Data Alert */}
       {hasMissingPrices && (
@@ -511,7 +531,7 @@ export default function Watchlist() {
               </tr>
             </thead>
             <tbody>
-              {assets.map((asset, index) => {
+              {filteredAssets.map((asset, index) => {
                 const typeStyle = getAssetTypeColor(asset.asset_type);
                 const change = asset.price ? formatChange(asset.price.change, asset.price.change_percent) : null;
                 const freshness = getFreshnessIndicator(asset.price?.data_freshness);
@@ -524,7 +544,7 @@ export default function Watchlist() {
                     key={asset.id}
                     style={{
                       borderBottom:
-                        index < assets.length - 1 ? '1px solid var(--border-color)' : 'none',
+                        index < filteredAssets.length - 1 ? '1px solid var(--border-color)' : 'none',
                       transition: 'background 0.2s',
                     }}
                     onMouseEnter={(e) => {
@@ -795,7 +815,7 @@ export default function Watchlist() {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span>关注列表总数: <strong style={{ color: 'var(--text-primary)' }}>{assets.length}</strong></span>
+            <span>当前分类: <strong style={{ color: 'var(--text-primary)' }}>{filteredAssets.length}</strong> / 总计: {assets.length}</span>
             {lastRefresh && (
               <span>更新于 {dayjs(lastRefresh).fromNow()}</span>
             )}
