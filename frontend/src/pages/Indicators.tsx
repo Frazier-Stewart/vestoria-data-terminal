@@ -80,24 +80,6 @@ export default function Indicators() {
 
   return (
     <div className="animate-fade-in">
-      {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
-        <h1
-          style={{
-            fontSize: '32px',
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            margin: '0 0 8px 0',
-            letterSpacing: '-0.5px',
-          }}
-        >
-          指标中心
-        </h1>
-        <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: 0 }}>
-          查看所有市场指标和估值数据
-        </p>
-      </div>
-
       {/* Indicators Grid */}
       <div
         style={{

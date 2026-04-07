@@ -305,28 +305,7 @@ export default function Watchlist() {
   return (
     <div className="animate-fade-in">
       {/* Header */}
-      <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div>
-          <h1
-            style={{
-              fontSize: '32px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              margin: '0 0 8px 0',
-              letterSpacing: '-0.5px',
-            }}
-          >
-            关注列表
-          </h1>
-          <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: 0 }}>
-            管理你关注的标的 ({assets.length})
-            {lastRefresh && (
-              <span style={{ marginLeft: '12px', fontSize: '13px' }}>
-                更新于 {dayjs(lastRefresh).fromNow()}
-              </span>
-            )}
-          </p>
-        </div>
+      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '12px' }}>
           {/* Refresh Button */}
           {hasWatchlist && (
@@ -801,18 +780,26 @@ export default function Watchlist() {
             borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
+            justifyContent: 'space-between',
             fontSize: '13px',
             color: 'var(--text-muted)',
           }}
         >
-          <AlertCircle size={16} />
-          <span>
-            价格数据自动每 60 秒刷新一次。
-            <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新
-            <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(1-2天)
-            <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(2天以上)
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={16} />
+            <span>
+              价格数据自动每 60 秒刷新一次。
+              <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新
+              <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(1-2天)
+              <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(2天以上)
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span>关注列表总数: <strong style={{ color: 'var(--text-primary)' }}>{assets.length}</strong></span>
+            {lastRefresh && (
+              <span>更新于 {dayjs(lastRefresh).fromNow()}</span>
+            )}
+          </div>
         </div>
       )}
     </div>
