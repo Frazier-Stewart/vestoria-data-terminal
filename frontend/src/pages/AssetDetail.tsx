@@ -220,7 +220,11 @@ export default function AssetDetail() {
       setBackfillEnd('');
     } catch (error) {
       console.error('Failed to backfill:', error);
-      alert('增补数据失败，请重试');
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`增补数据失败: ${error.response.data.detail}`);
+      } else {
+        alert('增补数据失败，请重试');
+      }
     } finally {
       setBackfilling(false);
     }
