@@ -22,7 +22,7 @@ from app.core.database import SessionLocal
 from app.models.asset import Asset
 from app.models.indicator import Indicator
 from app.models.scheduler import SchedulerRunLog
-from app.services.backfill import incremental_update
+from app.services.backfill import incremental_update, incremental_update_multi_source
 from app.services.indicator_scheduler import (
     fetch_external_indicator,
     fetch_latest_external_indicator,
@@ -169,6 +169,10 @@ class DataScheduler:
                     .all()
                 )
                 asset_ids = [a.id for a in crypto_assets]
+                
+                # Group by data source for reporting
+                yf_assets = [a for a in crypto_assets if a.data_source == "yfinance"]
+                binance_assets = [a for a in crypto_assets if a.data_source == "binance"]
             finally:
                 db.close()
 
@@ -177,10 +181,23 @@ class DataScheduler:
                 self._finish_run_log(run_log, "success", results)
                 return
 
-            # 2. Incremental price update
-            logger.info("[%s] Updating prices for %s", job_id, asset_ids)
-            price_results = incremental_update(asset_ids=asset_ids, lookback_days=5)
+            # 2. Incremental price update (multi-source)
+            logger.info("[%s] Updating prices for %s assets (yfinance: %s, binance: %s)", 
+                       job_id, len(asset_ids), len(yf_assets), len(binance_assets))
+            
+            price_results = incremental_update_multi_source(
+                asset_ids=asset_ids, 
+                lookback_days=5
+            )
             results["prices"] = self._summarise_price_results(price_results)
+            
+            # Report by source
+            yf_results = [r for r in price_results if r.get("source") == "yfinance" or "yfinance" in str(r.get("symbol", "")).lower()]
+            binance_results = [r for r in price_results if r.get("source") == "binance"]
+            results["by_source"] = {
+                "yfinance": {"count": len(yf_results), "success": sum(1 for r in yf_results if r["status"] == "success")},
+                "binance": {"count": len(binance_results), "success": sum(1 for r in binance_results if r["status"] == "success")}
+            }
 
             # 3. Update BTC Fear & Greed indicator
             indicator_results = self._update_indicators_for_assets(asset_ids, ["BTC_FEAR_GREED"])
