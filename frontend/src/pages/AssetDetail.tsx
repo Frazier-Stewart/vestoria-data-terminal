@@ -177,7 +177,7 @@ export default function AssetDetail() {
 
   const checkDataGap = async (assetId: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v1/prices/gap-check/${assetId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/prices/gap-check?asset_id=${assetId}`);
       setGapCheck(response.data);
       setShowGapWarning(response.data.has_gap);
     } catch (error) {
