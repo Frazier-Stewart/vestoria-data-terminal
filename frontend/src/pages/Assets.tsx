@@ -11,10 +11,12 @@ export default function Assets() {
   return (
     <div className="animate-fade-in">
       {/* Category Tabs */}
-      <CategoryTabs 
-        activeCategory={activeCategory} 
-        onChange={setActiveCategory} 
-      />
+      <div style={{ marginBottom: '32px' }}>
+        <CategoryTabs 
+          activeCategory={activeCategory} 
+          onChange={setActiveCategory} 
+        />
+      </div>
 
       {/* Panel Content */}
       {activeCategory === 'equities' && <EquitiesPanel />}
