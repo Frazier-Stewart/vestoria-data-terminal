@@ -6,6 +6,14 @@ import pandas as pd
 
 from app.indicators.base import BaseIndicatorProcessor, IndicatorResult
 from app.indicators.registry import register_processor
+from app.core.config import settings
+
+# Configure yfinance proxy if set
+if settings.PROXY_URL:
+    yf.config.network.proxy = {
+        "http": settings.PROXY_URL,
+        "https": settings.PROXY_URL,
+    }
 
 
 @register_processor
