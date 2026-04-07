@@ -21,6 +21,8 @@ const menuItems = [
 
 export default function MainLayout() {
   const location = useLocation();
+  const from = (location.state as { from?: string })?.from;
+  const isFromWatchlist = from === 'watchlist';
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -42,6 +44,14 @@ export default function MainLayout() {
   const isActive = (path: string) => {
     if (path === '/') {
       return location.pathname === '/';
+    }
+    // When on asset detail page and came from watchlist, highlight watchlist
+    if (path === '/watchlist' && isFromWatchlist && location.pathname.startsWith('/assets/')) {
+      return true;
+    }
+    // When on assets page (not detail), highlight assets
+    if (path === '/assets' && location.pathname === '/assets') {
+      return true;
     }
     return location.pathname.startsWith(path);
   };

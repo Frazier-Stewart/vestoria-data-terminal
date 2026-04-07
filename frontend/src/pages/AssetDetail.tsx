@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
@@ -91,6 +91,10 @@ function getChartColors() {
 
 export default function AssetDetail() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const from = (location.state as { from?: string })?.from;
+  const isFromWatchlist = from === 'watchlist';
+  
   const [asset, setAsset] = useState<Asset | null>(null);
   const [prices, setPrices] = useState<PriceData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -285,7 +289,8 @@ export default function AssetDetail() {
       {/* Header */}
       <div style={{ marginBottom: '32px' }}>
         <Link
-          to="/assets"
+          to={isFromWatchlist ? '/watchlist' : '/assets'}
+          state={isFromWatchlist ? { from: 'detail' } : undefined}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -297,7 +302,7 @@ export default function AssetDetail() {
           }}
         >
           <ArrowLeft size={16} />
-          返回标的列表
+          返回{isFromWatchlist ? '关注列表' : '标的列表'}
         </Link>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>

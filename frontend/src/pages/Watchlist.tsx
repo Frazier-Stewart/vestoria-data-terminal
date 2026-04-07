@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Plus, TrendingUp, TrendingDown, Trash2, ExternalLink, RefreshCw, AlertCircle, Download, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
@@ -576,6 +576,7 @@ export default function Watchlist() {
                         <div>
                           <Link
                             to={`/assets/${asset.id}`}
+                            state={{ from: 'watchlist' }}
                             style={{
                               fontSize: '15px',
                               fontWeight: 600,
@@ -746,6 +747,7 @@ export default function Watchlist() {
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         <Link
                           to={`/assets/${asset.id}`}
+                          state={{ from: 'watchlist' }}
                           style={{
                             padding: '8px',
                             borderRadius: '8px',
