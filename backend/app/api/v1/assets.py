@@ -9,6 +9,7 @@ from app.models.asset import Asset
 from app.models.sector import Sector, Industry, SectorTopCompany, IndustryTopCompany
 from app.schemas.asset import AssetCreate, AssetUpdate, AssetResponse
 from app.services.yfinance_search import yfinance_service
+from app.services import sector_sync
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -114,8 +115,22 @@ async def get_sectors(db: Session = Depends(get_db)):
     获取所有 GICS 板块
     
     返回 11 个标准 GICS 板块及其基本信息（从本地数据库读取）
+    如果数据库为空，会自动触发同步
     """
     sectors = db.query(Sector).order_by(Sector.name).all()
+    
+    # 如果数据库为空，自动触发同步
+    if not sectors:
+        import threading
+        def sync_in_background():
+            sector_sync.sync_sectors()
+        thread = threading.Thread(target=sync_in_background, daemon=True)
+        thread.start()
+        # 等待同步完成（最多5秒）
+        thread.join(timeout=5.0)
+        # 重新查询
+        sectors = db.query(Sector).order_by(Sector.name).all()
+    
     return [
         SectorResponse(
             key=s.key,
@@ -133,8 +148,27 @@ async def get_industries_by_sector(sector_key: str, db: Session = Depends(get_db
     获取指定板块下的所有子行业
     
     - sector_key: 板块代码 (如: technology, financial-services)
+    如果该板块下没有行业数据，会自动触发同步
     """
     industries = db.query(Industry).filter(Industry.sector_key == sector_key).order_by(Industry.name).all()
+    
+    # 如果该板块下没有行业数据，自动触发同步
+    if not industries:
+        import threading
+        def sync_in_background():
+            # 先确保 sector 存在
+            sector = db.query(Sector).filter(Sector.key == sector_key).first()
+            if not sector:
+                sector_sync.sync_sectors()
+            # 同步该 sector 下的 industries
+            sector_sync.sync_industries()
+        thread = threading.Thread(target=sync_in_background, daemon=True)
+        thread.start()
+        # 等待同步完成（最多5秒）
+        thread.join(timeout=5.0)
+        # 重新查询
+        industries = db.query(Industry).filter(Industry.sector_key == sector_key).order_by(Industry.name).all()
+    
     return [
         IndustryResponse(
             key=i.key,

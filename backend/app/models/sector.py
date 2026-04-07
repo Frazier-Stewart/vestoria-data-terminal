@@ -33,10 +33,6 @@ class Industry(Base):
     market_weight = Column(Float, nullable=True)
     last_updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    __table_args__ = (
-        Index("ix_industries_sector_key", "sector_key"),
-    )
-
     def __repr__(self):
         return f"<Industry(key='{self.key}', name='{self.name}')>"
 
