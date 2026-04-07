@@ -45,14 +45,19 @@ export default function MainLayout() {
     if (path === '/') {
       return location.pathname === '/';
     }
-    // When on asset detail page and came from watchlist, highlight watchlist
-    if (path === '/watchlist' && isFromWatchlist && location.pathname.startsWith('/assets/')) {
-      return true;
+    
+    // When on asset detail page, only highlight based on source
+    if (location.pathname.startsWith('/assets/')) {
+      if (path === '/watchlist' && isFromWatchlist) {
+        return true;
+      }
+      if (path === '/assets' && !isFromWatchlist) {
+        return true;
+      }
+      return false;
     }
-    // When on assets page (not detail), highlight assets
-    if (path === '/assets' && location.pathname === '/assets') {
-      return true;
-    }
+    
+    // Normal matching for other pages
     return location.pathname.startsWith(path);
   };
 

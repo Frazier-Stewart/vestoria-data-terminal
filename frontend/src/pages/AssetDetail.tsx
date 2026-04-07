@@ -94,6 +94,7 @@ export default function AssetDetail() {
   const location = useLocation();
   const from = (location.state as { from?: string })?.from;
   const isFromWatchlist = from === 'watchlist';
+  const isFromAssets = from === 'assets' || !from; // default to assets
   
   const [asset, setAsset] = useState<Asset | null>(null);
   const [prices, setPrices] = useState<PriceData[]>([]);
@@ -290,7 +291,6 @@ export default function AssetDetail() {
       <div style={{ marginBottom: '32px' }}>
         <Link
           to={isFromWatchlist ? '/watchlist' : '/assets'}
-          state={isFromWatchlist ? { from: 'detail' } : undefined}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
