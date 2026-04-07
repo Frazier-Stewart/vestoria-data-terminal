@@ -206,6 +206,21 @@ export default function AssetDetail() {
   const handleBackfill = async () => {
     if (!id || !backfillStart || !backfillEnd) return;
     
+    // 验证日期范围（最多5年）
+    const start = new Date(backfillStart);
+    const end = new Date(backfillEnd);
+    const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24) + 1;
+    
+    if (days > 365 * 5) {
+      alert('日期范围不能超过5年，请重新选择');
+      return;
+    }
+    
+    if (end > new Date()) {
+      alert('结束日期不能在未来，请重新选择');
+      return;
+    }
+    
     setBackfilling(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/v1/prices/backfill-range?asset_id=${id}`, {
@@ -218,6 +233,7 @@ export default function AssetDetail() {
       setShowBackfillModal(false);
       setBackfillStart('');
       setBackfillEnd('');
+      alert(`数据增补完成！共获取 ${response.data.days_filled} 天数据`);
     } catch (error) {
       console.error('Failed to backfill:', error);
       if (axios.isAxiosError(error) && error.response?.data?.detail) {
