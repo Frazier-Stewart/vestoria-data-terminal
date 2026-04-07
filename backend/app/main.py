@@ -39,19 +39,19 @@ def init_indicators():
         init_indicator_templates(db)
         
         # Create default indicator instances if not exists
-        # BTC Fear & Greed
-        btc_asset = db.query(Asset).filter(Asset.id == "BTC-USD").first()
+        # BTC Fear & Greed (使用 BTCUSDT 作为关联资产)
+        btc_asset = db.query(Asset).filter(Asset.id == "BTCUSDT").first()
         fg_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "BTC_FEAR_GREED").first()
         
         if btc_asset and fg_template:
             existing = db.query(Indicator).filter(
                 Indicator.template_id == "BTC_FEAR_GREED",
-                Indicator.asset_id == "BTC-USD"
+                Indicator.asset_id == "BTCUSDT"
             ).first()
             if not existing:
                 indicator = Indicator(
                     template_id="BTC_FEAR_GREED",
-                    asset_id="BTC-USD",
+                    asset_id="BTCUSDT",
                     name="BTC恐慌贪婪指数",
                     params={"api_url": "https://api.alternative.me/fng/"},
                     is_active=True
