@@ -3,12 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, AlertCircle, TrendingUp, Gauge } from 'lucide-react';
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
+interface IndicatorTemplate {
+  id: string;
+  name: string;
+  indicator_type: string;
+  category?: string;
+}
+
 interface Indicator {
   id: number;
-  indicator_type: string;
+  template_id: string;
   asset_id?: string;
   name: string;
   description?: string;
+  template?: IndicatorTemplate;
 }
 
 interface IndicatorValue {
@@ -25,8 +35,9 @@ const typeConfig: Record<string, { label: string; color: string; bg: string; ico
   vix: { label: 'VIX', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
   ma200: { label: 'MA200', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   pe: { label: '市盈率', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', icon: Activity },
-  metric: { label: '技术指标', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)', icon: TrendingUp },
-  sentiment: { label: '情绪指标', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)', icon: Activity },
+  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
+  sentiment: { label: '情绪指标', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
+  volatility: { label: '波动率', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
 };
 
 const levelConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -56,13 +67,13 @@ export default function Indicators() {
 
   const fetchIndicators = async () => {
     try {
-      const response = await axios.get('/api/v1/indicators');
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators`);
       setIndicators(response.data);
 
       const valuesMap: Record<number, IndicatorValue> = {};
       for (const indicator of response.data) {
         try {
-          const valueRes = await axios.get(`/api/v1/indicators/${indicator.id}/values?limit=1`);
+          const valueRes = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicator.id}/values?limit=1`);
           if (valueRes.data.length > 0) {
             valuesMap[indicator.id] = valueRes.data[0];
           }
@@ -198,7 +209,8 @@ export default function Indicators() {
               </thead>
               <tbody>
                 {indicators.map((indicator, index) => {
-                  const config = typeConfig[indicator.indicator_type] || typeConfig['metric'];
+                  const indicatorType = indicator.template?.indicator_type || 'metric';
+                  const config = typeConfig[indicatorType] || typeConfig['metric'];
                   const Icon = config.icon;
                   const value = values[indicator.id];
                   const level = value?.grade ? levelConfig[value.grade] : null;

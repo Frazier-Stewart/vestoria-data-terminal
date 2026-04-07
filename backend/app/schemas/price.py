@@ -40,6 +40,12 @@ class PriceHistoryRequest(BaseModel):
     interval: str = "1d"
 
 
+class BackfillRangeRequest(BaseModel):
+    """Request model for backfill price data in a specific range."""
+    start_date: date = Field(..., description="开始日期")
+    end_date: date = Field(..., description="结束日期")
+
+
 class SparklineData(BaseModel):
     """Single price point for sparkline chart."""
     date: date

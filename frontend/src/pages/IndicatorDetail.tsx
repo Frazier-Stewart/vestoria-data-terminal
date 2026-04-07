@@ -5,6 +5,8 @@ import { createChart, AreaSeries, ColorType } from 'lightweight-charts';
 import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database } from 'lucide-react';
 import dayjs from 'dayjs';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 interface Indicator {
   id: number;
   name: string;
@@ -35,8 +37,9 @@ const typeConfig: Record<string, { label: string; color: string; bg: string; ico
   vix: { label: 'VIX', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
   ma200: { label: 'MA200', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   pe: { label: '市盈率', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', icon: Activity },
-  metric: { label: '技术指标', color: '#6366f1', bg: 'rgba(99, 102, 241, 0.1)', icon: Database },
-  sentiment: { label: '情绪指标', color: '#ec4899', bg: 'rgba(236, 72, 153, 0.1)', icon: Activity },
+  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: Database },
+  sentiment: { label: '情绪指标', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
+  volatility: { label: '波动率', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
 };
 
 const gradeConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -92,7 +95,7 @@ export default function IndicatorDetail() {
 
   const fetchIndicator = async (indicatorId: number) => {
     try {
-      const response = await axios.get(`/api/v1/indicators/${indicatorId}`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}`);
       setIndicator(response.data);
     } catch (error) {
       console.error('Failed to fetch indicator:', error);
@@ -103,7 +106,7 @@ export default function IndicatorDetail() {
 
   const fetchValues = async (indicatorId: number) => {
     try {
-      const response = await axios.get(`/api/v1/indicators/${indicatorId}/values?limit=500`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/values?limit=500`);
       const sorted = response.data.sort((a: IndicatorValue, b: IndicatorValue) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
@@ -117,7 +120,7 @@ export default function IndicatorDetail() {
 
   const indicatorColor = useMemo(() => {
     if (!indicator) return '#6366f1';
-    const config = typeConfig[indicator.indicator_type] || typeConfig['metric'];
+    const config = typeConfig[indicator.template?.indicator_type || 'metric'] || typeConfig['metric'];
     return config.color;
   }, [indicator]);
 
@@ -229,7 +232,7 @@ export default function IndicatorDetail() {
     );
   }
 
-  const config = typeConfig[indicator.indicator_type] || typeConfig['metric'];
+  const config = typeConfig[indicator.template?.indicator_type || 'metric'] || typeConfig['metric'];
   const Icon = config.icon;
   const latestGrade = stats?.latestGrade ? gradeConfig[stats.latestGrade] : null;
   const latestFearGreed = isFearGreed && stats ? getFearGreedGrade(stats.latest) : null;

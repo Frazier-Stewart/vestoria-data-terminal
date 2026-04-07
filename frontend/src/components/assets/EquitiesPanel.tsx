@@ -37,6 +37,10 @@ export default function EquitiesPanel() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // 预定义标的（默认展示）
+  const [predefinedStocks, setPredefinedStocks] = useState<YFinanceSearchResult[]>([]);
+  const [predefinedLoading, setPredefinedLoading] = useState(false);
+
   // 筛选状态
   const [sectors, setSectors] = useState<SectorConfig[]>(SECTOR_CONFIG);
   const [sectorsLoading, setSectorsLoading] = useState(false);
@@ -54,9 +58,10 @@ export default function EquitiesPanel() {
   const [addedSymbols, setAddedSymbols] = useState<Set<string>>(new Set());
 
   // ============ Effects ============
-  // 加载 Sector 列表
+  // 加载 Sector 列表和预定义标的
   useEffect(() => {
     loadSectors();
+    loadPredefinedStocks();
   }, []);
 
   // Sector 变化时加载 Industries
@@ -93,6 +98,20 @@ export default function EquitiesPanel() {
       setSectors(SECTOR_CONFIG);
     } finally {
       setSectorsLoading(false);
+    }
+  };
+
+  // 加载预定义核心标的
+  const loadPredefinedStocks = async () => {
+    setPredefinedLoading(true);
+    try {
+      const response = await axios.get<YFinanceSearchResult[]>(`${API_BASE_URL}/api/v1/assets/predefined`);
+      setPredefinedStocks(response.data || []);
+    } catch (error) {
+      console.error('Failed to load predefined stocks:', error);
+      setPredefinedStocks([]);
+    } finally {
+      setPredefinedLoading(false);
     }
   };
 
@@ -483,8 +502,8 @@ export default function EquitiesPanel() {
         </div>
       </div>
 
-      {/* 搜索结果 */}
-      {hasSearched && (
+      {/* 推荐标的（未搜索时显示） */}
+      {!hasSearched && (
         <div
           style={{
             background: 'var(--bg-primary)',
@@ -493,14 +512,14 @@ export default function EquitiesPanel() {
             overflow: 'hidden',
           }}
         >
-          {loading ? (
+          {predefinedLoading ? (
             <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
               <Loader2 size={32} style={{ marginBottom: '16px', animation: 'spin 1s linear infinite' }} />
-              <p>搜索中...</p>
+              <p>加载中...</p>
             </div>
-          ) : results.length === 0 ? (
-            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
-              <p>未找到匹配的股票</p>
+          ) : predefinedStocks.length === 0 ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <p>暂无推荐标的</p>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
@@ -516,7 +535,7 @@ export default function EquitiesPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((stock, index) => {
+                  {predefinedStocks.map((stock, index) => {
                     const sectorConfig = getSectorConfig(stock.sector);
                     const isAdded = addedSymbols.has(stock.symbol);
                     const isAdding = addingSymbol === stock.symbol;
@@ -524,10 +543,12 @@ export default function EquitiesPanel() {
                     return (
                       <tr
                         key={stock.symbol}
+                        onClick={() => window.location.href = `/assets/${stock.symbol}`}
                         style={{
                           borderBottom:
-                            index < results.length - 1 ? '1px solid var(--border-color)' : 'none',
+                            index < predefinedStocks.length - 1 ? '1px solid var(--border-color)' : 'none',
                           transition: 'background 0.2s',
+                          cursor: 'pointer',
                         }}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.background = 'var(--bg-secondary)';
@@ -630,9 +651,8 @@ export default function EquitiesPanel() {
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                            <Link
-                              to={`/assets/${stock.symbol}`}
-                              state={{ from: 'assets' }}
+                            <button
+                              onClick={(e) => e.stopPropagation()}
                               style={{
                                 padding: '6px',
                                 borderRadius: '6px',
@@ -647,9 +667,222 @@ export default function EquitiesPanel() {
                               title="查看详情"
                             >
                               <ExternalLink size={14} />
-                            </Link>
+                            </button>
                             <button
-                              onClick={() => handleAddToWatchlist(stock)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddToWatchlist(stock);
+                              }}
+                              disabled={isAdding || isAdded}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: isAdded 
+                                  ? 'var(--success-color, #22c55e)' 
+                                  : 'var(--primary-color)',
+                                color: 'white',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                cursor: (isAdding || isAdded) ? 'not-allowed' : 'pointer',
+                                opacity: (isAdding || isAdded) ? 0.7 : 1,
+                              }}
+                            >
+                              {isAdding ? (
+                                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : isAdded ? (
+                                <Check size={14} />
+                              ) : (
+                                <Plus size={14} />
+                              )}
+                              {isAdded ? '已添加' : '添加'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 搜索结果 */}
+      {hasSearched && (
+        <div
+          style={{
+            background: 'var(--bg-primary)',
+            borderRadius: '16px',
+            border: '1px solid var(--border-color)',
+            overflow: 'hidden',
+          }}
+        >
+          {loading ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <Loader2 size={32} style={{ marginBottom: '16px', animation: 'spin 1s linear infinite' }} />
+              <p>搜索中...</p>
+            </div>
+          ) : results.length === 0 ? (
+            <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              <p>未找到匹配的股票</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th style={thStyle}>股票</th>
+                    <th style={thStyle}>板块</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>市值</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>市盈率 (PE)</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>价格</th>
+                    <th style={{ ...thStyle, textAlign: 'center' }}>操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {results.map((stock, index) => {
+                    const sectorConfig = getSectorConfig(stock.sector);
+                    const isAdded = addedSymbols.has(stock.symbol);
+                    const isAdding = addingSymbol === stock.symbol;
+                    
+                    return (
+                      <tr
+                        key={stock.symbol}
+                        onClick={() => window.location.href = `/assets/${stock.symbol}`}
+                        style={{
+                          borderBottom:
+                            index < results.length - 1 ? '1px solid var(--border-color)' : 'none',
+                          transition: 'background 0.2s',
+                          cursor: 'pointer',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'var(--bg-secondary)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        <td style={tdStyle}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <Link
+                              to={`/assets/${stock.symbol}`}
+                              state={{ from: 'assets' }}
+                              style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '10px',
+                                background: sectorConfig.bg,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: sectorConfig.color,
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                textDecoration: 'none',
+                                transition: 'all 0.2s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'scale(1.05)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                              }}
+                            >
+                              {stock.symbol.slice(0, 2)}
+                            </Link>
+                            <div>
+                              <Link
+                                to={`/assets/${stock.symbol}`}
+                                state={{ from: 'assets' }}
+                                style={{
+                                  fontSize: '15px',
+                                  fontWeight: 600,
+                                  color: 'var(--text-primary)',
+                                  textDecoration: 'none',
+                                  margin: '0 0 2px 0',
+                                  display: 'block',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = 'var(--primary-color)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--text-primary)';
+                                }}
+                              >
+                                {stock.symbol}
+                              </Link>
+                              <p
+                                style={{
+                                  fontSize: '13px',
+                                  color: 'var(--text-muted)',
+                                  margin: 0,
+                                }}
+                              >
+                                {stock.name}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              fontSize: '12px',
+                              fontWeight: 500,
+                              padding: '4px 10px',
+                              borderRadius: '6px',
+                              background: sectorConfig.bg,
+                              color: sectorConfig.color,
+                            }}
+                          >
+                            {sectorConfig.labelZh}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          <span
+                            style={{ fontSize: '14px', color: 'var(--text-primary)' }}
+                          >
+                            {formatMarketCap(stock.marketCap)}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+                            {stock.trailingPE?.toFixed(2) || '-'}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>
+                          <span style={{ fontSize: '14px', color: 'var(--text-primary)' }}>
+                            ${stock.price?.toFixed(2) || '-'}
+                          </span>
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            <button
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                padding: '6px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: 'var(--bg-secondary)',
+                                color: 'var(--text-secondary)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title="查看详情"
+                            >
+                              <ExternalLink size={14} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAddToWatchlist(stock);
+                              }}
                               disabled={isAdding || isAdded}
                               style={{
                                 display: 'inline-flex',

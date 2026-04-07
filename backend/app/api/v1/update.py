@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.models.asset import Asset
 from app.models.price_data import PriceData
 from app.fetchers.registry import get_fetcher
-from app.services.backfill import backfill_asset, get_yfinance_symbol
+from app.services.backfill import backfill_asset, get_yfinance_symbol, update_asset_with_fetcher
 
 router = APIRouter(prefix="/update", tags=["update"])
 
@@ -131,6 +131,7 @@ def backfill_asset_prices(
     
     This is a synchronous endpoint that fetches historical data immediately.
     Use this when adding a new asset to populate its price history.
+    Supports both yfinance and binance data sources.
     
     Args:
         asset_id: The asset ID to backfill
@@ -139,38 +140,32 @@ def backfill_asset_prices(
     Returns:
         Result with status and record counts
     """
+    from app.services.backfill import get_source_symbol
+    
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
-    # Get the yfinance symbol
-    yf_symbol = get_yfinance_symbol(asset)
     
     # Calculate date range
     end = date.today()
     start = end - timedelta(days=days)
     
-    # Run backfill
-    result = backfill_asset(
-        asset_id=asset.id,
-        symbol=yf_symbol,
-        start=start,
-        end=end,
-        db=db
-    )
+    # Use multi-source update function
+    result = update_asset_with_fetcher(asset, start, end, interval="1d", db=db, close_db=False)
     
     if result["status"] == "error":
         raise HTTPException(status_code=500, detail=result.get("message", "Backfill failed"))
     
     return {
         "asset_id": asset_id,
-        "symbol": yf_symbol,
+        "symbol": result.get("symbol", asset.source_symbol),
         "status": result["status"],
         "records": result.get("records", 0),
         "inserted": result.get("inserted", 0),
         "updated": result.get("updated", 0),
         "start_date": result.get("start_date"),
         "end_date": result.get("end_date"),
+        "source": result.get("source", asset.data_source),
         "message": f"Successfully backfilled {result.get('records', 0)} price records"
     }
 

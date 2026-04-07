@@ -225,13 +225,25 @@ async def get_predefined_tickers():
 
 @router.post("", response_model=AssetResponse)
 def create_asset(asset: AssetCreate, db: Session = Depends(get_db)):
-    """Create a new asset."""
+    """Create a new asset.
+    
+    如果标的已存在（通过延迟创建），则将其标记为已关注（is_watched=true）。
+    """
     # Check if asset already exists
     db_asset = db.query(Asset).filter(Asset.id == asset.id).first()
     if db_asset:
+        # 如果已存在但未关注，则标记为关注
+        if not db_asset.is_watched:
+            db_asset.is_watched = True
+            db.commit()
+            db.refresh(db_asset)
         raise HTTPException(status_code=409, detail="Asset already exists")
     
-    db_asset = Asset(**asset.model_dump())
+    # 新创建的标的默认加入关注列表
+    asset_data = asset.model_dump()
+    asset_data['is_watched'] = True  # 主动添加的标的默认在关注列表中
+    
+    db_asset = Asset(**asset_data)
     db.add(db_asset)
     db.commit()
     db.refresh(db_asset)
@@ -241,6 +253,7 @@ def create_asset(asset: AssetCreate, db: Session = Depends(get_db)):
 @router.get("", response_model=List[AssetResponse])
 def list_assets(
     asset_type: str = None,
+    watched_only: bool = Query(False, description="仅返回关注列表中的标的"),
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -249,16 +262,149 @@ def list_assets(
     query = db.query(Asset)
     if asset_type:
         query = query.filter(Asset.asset_type == asset_type)
+    if watched_only:
+        query = query.filter(Asset.is_watched == True)
     return query.offset(skip).limit(limit).all()
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
-def get_asset(asset_id: str, db: Session = Depends(get_db)):
-    """Get asset by ID."""
+def get_asset(
+    asset_id: str, 
+    auto_create: bool = Query(True, description="标的未找到时自动从数据源创建"),
+    db: Session = Depends(get_db)
+):
+    """Get asset by ID.
+    
+    - 如果标的不存在且 auto_create=true，会自动从数据源获取并创建（延迟创建）
+    - 延迟创建的标的 is_watched=false，不会出现在关注列表中
+    """
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
-    return asset
+    if asset:
+        return asset
+    
+    # 自动创建模式：尝试从数据源获取标的元数据
+    if auto_create:
+        # 尝试识别数据源并获取元数据
+        created_asset = _auto_create_asset(asset_id, db)
+        if created_asset:
+            return created_asset
+    
+    raise HTTPException(status_code=404, detail="Asset not found")
+
+
+def _auto_create_asset(asset_id: str, db: Session) -> Optional[Asset]:
+    """
+    自动从外部数据源创建标的（延迟创建）。
+    
+    支持的格式：
+    - 纯 symbol（如 AAPL, BTCUSDT）
+    - 带后缀（如 BTC-USD）
+    
+    返回创建的 Asset 或 None
+    """
+    import asyncio
+    from app.fetchers.registry import get_fetcher
+    
+    # 尝试识别数据源类型
+    # 1. 如果是纯大写字母+数字，可能是币安交易对（如 BTCUSDT, ETHUSDT）
+    # 2. 否则尝试 yfinance
+    
+    is_likely_crypto = (
+        asset_id.isupper() and 
+        len(asset_id) >= 6 and 
+        not asset_id.startswith('^') and
+        ('USD' in asset_id or 'USDT' in asset_id or 'BTC' in asset_id or 'ETH' in asset_id)
+    )
+    
+    asset_data = None
+    data_source = None
+    
+    # 尝试 Binance
+    if is_likely_crypto:
+        try:
+            fetcher_class = get_fetcher("binance")
+            fetcher = fetcher_class()
+            # 直接使用 symbol 作为搜索关键词
+            search_results = asyncio.run(fetcher.search(asset_id, limit=5))
+            
+            # 找完全匹配的
+            for result in search_results:
+                if result.source_symbol == asset_id or result.symbol == asset_id.replace('USDT', '').replace('USD', ''):
+                    asset_data = result
+                    data_source = "binance"
+                    break
+            
+            # 没有完全匹配，使用第一个
+            if not asset_data and search_results:
+                asset_data = search_results[0]
+                data_source = "binance"
+                
+        except Exception as e:
+            print(f"Binance auto-create error for {asset_id}: {e}")
+    
+    # 尝试 yfinance（股票/ETF）
+    if not asset_data:
+        try:
+            # 使用 yfinance_service 搜索
+            search_results = yfinance_service.search_by_symbol(asset_id, limit=5)
+            
+            for result in search_results:
+                if result.symbol == asset_id:
+                    asset_data = result
+                    data_source = "yfinance"
+                    break
+            
+            # 没有完全匹配，使用第一个
+            if not asset_data and search_results:
+                asset_data = search_results[0]
+                data_source = "yfinance"
+                
+        except Exception as e:
+            print(f"YFinance auto-create error for {asset_id}: {e}")
+    
+    if not asset_data:
+        return None
+    
+    # 创建 Asset
+    try:
+        if data_source == "binance":
+            new_asset = Asset(
+                id=asset_data.source_symbol,  # 使用完整交易对作为 ID
+                symbol=asset_data.symbol,
+                name=asset_data.name,
+                asset_type="crypto",
+                exchange="BINANCE",
+                currency="USDT",
+                data_source="binance",
+                source_symbol=asset_data.source_symbol,
+                is_active=True,
+                is_watched=False,  # 延迟创建的标的不在关注列表中
+            )
+        else:  # yfinance
+            new_asset = Asset(
+                id=asset_data.symbol,
+                symbol=asset_data.symbol,
+                name=asset_data.name,
+                asset_type="equity",  # 默认 equity，可能是 ETF
+                exchange=asset_data.exchange or "US",
+                currency=asset_data.currency or "USD",
+                data_source="yfinance",
+                source_symbol=asset_data.symbol,
+                is_active=True,
+                is_watched=False,  # 延迟创建的标的不在关注列表中
+            )
+        
+        db.add(new_asset)
+        db.commit()
+        db.refresh(new_asset)
+        
+        print(f"[AutoCreate] Created asset: {new_asset.id} ({new_asset.name}) from {data_source}")
+        return new_asset
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Failed to auto-create asset {asset_id}: {e}")
+        return None
 
 
 @router.put("/{asset_id}", response_model=AssetResponse)

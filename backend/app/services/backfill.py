@@ -1,6 +1,7 @@
 """Historical data backfill utilities."""
 import os
 import time
+import asyncio
 import yfinance as yf
 import pandas as pd
 from datetime import date, datetime, timedelta
@@ -11,6 +12,7 @@ from app.models.asset import Asset
 from app.models.price_data import PriceData
 from app.core.database import SessionLocal
 from app.core.config import settings
+from app.fetchers.registry import get_fetcher
 
 
 # Set proxy environment variables if configured
@@ -374,6 +376,163 @@ def incremental_update(
                 db=db
             )
             results.append(result)
+        
+        return results
+        
+    finally:
+        db.close()
+
+
+# ============== Multi-source support ==============
+
+def get_source_symbol(asset: Asset) -> str:
+    """
+    Get the source-specific symbol for an asset.
+    
+    For yfinance: use symbol or id (for crypto)
+    For binance: use source_symbol
+    """
+    if asset.data_source == "binance":
+        return asset.source_symbol
+    elif asset.data_source == "yfinance":
+        if asset.asset_type == "crypto":
+            return asset.id  # e.g., BTC-USD
+        return asset.symbol  # e.g., SPY
+    else:
+        # Default fallback
+        return asset.source_symbol or asset.symbol
+
+
+def update_asset_with_fetcher(
+    asset: Asset,
+    start: date,
+    end: date,
+    interval: str = "1d",
+    db: Session = None,
+    close_db: bool = True
+) -> dict:
+    """
+    Update price data for an asset using its configured fetcher.
+    
+    This is a generic function that works with any registered fetcher.
+    """
+    should_close_db = close_db
+    if db is None:
+        db = SessionLocal()
+        should_close_db = True
+    
+    try:
+        # Get the appropriate fetcher
+        fetcher_class = get_fetcher(asset.data_source)
+        if not fetcher_class:
+            return {
+                "asset_id": asset.id,
+                "symbol": asset.source_symbol,
+                "status": "error",
+                "message": f"No fetcher found for data_source: {asset.data_source}",
+                "inserted": 0,
+                "updated": 0
+            }
+        
+        fetcher = fetcher_class()
+        source_symbol = get_source_symbol(asset)
+        
+        print(f"Updating {asset.id} ({source_symbol}) via {asset.data_source}: {start} to {end}")
+        
+        # Fetch prices using async method
+        prices = asyncio.run(fetcher.fetch_prices(source_symbol, start, end, interval))
+        
+        if not prices:
+            return {
+                "asset_id": asset.id,
+                "symbol": source_symbol,
+                "status": "error",
+                "message": "No data fetched",
+                "inserted": 0,
+                "updated": 0
+            }
+        
+        # Convert to DataFrame for compatibility with save_price_data
+        df = pd.DataFrame(prices)
+        
+        # Save to database
+        inserted, updated = save_price_data(db, asset.id, df, interval, source=asset.data_source)
+        
+        return {
+            "asset_id": asset.id,
+            "symbol": source_symbol,
+            "status": "success",
+            "start_date": df["date"].min(),
+            "end_date": df["date"].max(),
+            "records": len(df),
+            "inserted": inserted,
+            "updated": updated,
+            "source": asset.data_source
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "asset_id": asset.id,
+            "symbol": asset.source_symbol,
+            "status": "error",
+            "message": str(e),
+            "inserted": 0,
+            "updated": 0
+        }
+    finally:
+        if should_close_db:
+            db.close()
+
+
+def incremental_update_multi_source(
+    asset_ids: List[str] = None,
+    lookback_days: int = 5,
+    interval: str = "1d",
+    data_source: str = None
+) -> List[dict]:
+    """
+    Incremental update supporting multiple data sources.
+    
+    Args:
+        asset_ids: Specific assets to update (None = all)
+        lookback_days: Extra days to fetch for safety
+        interval: Data interval
+        data_source: Filter by data_source (e.g., 'yfinance', 'binance')
+    
+    Returns:
+        List of result dicts
+    """
+    db = SessionLocal()
+    try:
+        query = db.query(Asset)
+        if asset_ids:
+            query = query.filter(Asset.id.in_(asset_ids))
+        if data_source:
+            query = query.filter(Asset.data_source == data_source)
+        
+        assets = query.all()
+        results = []
+        end = datetime.now().date()
+        
+        print(f"Incremental update for {len(assets)} assets (today: {end})")
+        print("-" * 50)
+        
+        for asset in assets:
+            latest = get_latest_price_date(asset.id, interval, db)
+            
+            if latest:
+                start = latest - timedelta(days=lookback_days)
+                print(f"  {asset.id} ({asset.data_source}): updating from {start}")
+            else:
+                start = end - timedelta(days=365)
+                print(f"  {asset.id} ({asset.data_source}): no data, fetching from {start}")
+            
+            result = update_asset_with_fetcher(asset, start, end, interval, db)
+            results.append(result)
+            
+            status_icon = "✓" if result["status"] == "success" else "✗"
+            print(f"    {status_icon} {result.get('inserted', 0)} new, {result.get('updated', 0)} updated")
         
         return results
         

@@ -2,7 +2,7 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
-import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle, Star, Loader2, AlertTriangle, Plus } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -16,6 +16,7 @@ interface Asset {
   currency: string;
   data_source: string;
   is_active: boolean;
+  is_watched?: boolean;
 }
 
 interface PriceData {
@@ -30,6 +31,23 @@ interface PriceData {
 }
 
 type TimeRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+
+interface DataGap {
+  start_date: string;
+  end_date: string;
+  days: number;
+}
+
+interface GapCheckResult {
+  asset_id: string;
+  has_data: boolean;
+  has_gap: boolean;
+  total_missing: number;
+  gaps: DataGap[];
+  earliest_date?: string;
+  latest_date?: string;
+  threshold_days: number;
+}
 
 interface StatCardProps {
   title: string;
@@ -101,6 +119,15 @@ export default function AssetDetail() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('3M');
   const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+  const [addingToWatchlist, setAddingToWatchlist] = useState(false);
+  const [addSuccess, setAddSuccess] = useState(false);
+  const [gapCheck, setGapCheck] = useState<GapCheckResult | null>(null);
+  const [showGapWarning, setShowGapWarning] = useState(false);
+  const [fillingGap, setFillingGap] = useState(false);
+  const [showBackfillModal, setShowBackfillModal] = useState(false);
+  const [backfillStart, setBackfillStart] = useState('');
+  const [backfillEnd, setBackfillEnd] = useState('');
+  const [backfilling, setBackfilling] = useState(false);
 
   const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
     setChartContainer(node);
@@ -110,13 +137,20 @@ export default function AssetDetail() {
     if (id) {
       fetchAsset(id);
       fetchPrices(id);
+      checkDataGap(id);
     }
   }, [id]);
 
   const fetchAsset = async (assetId: string) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/v1/assets/${assetId}`);
-      setAsset(response.data);
+      const assetData = response.data;
+      setAsset(assetData);
+      
+      // 未收藏的标的使用实时价格接口
+      if (!assetData.is_watched) {
+        fetchPrices(assetId, true);
+      }
     } catch (error) {
       console.error('Failed to fetch asset:', error);
     } finally {
@@ -124,15 +158,138 @@ export default function AssetDetail() {
     }
   };
 
-  const fetchPrices = async (assetId: string) => {
+  const fetchPrices = async (assetId: string, isUnwatched: boolean = false) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v1/prices?asset_id=${assetId}&limit=9999`);
+      // 未收藏的标的使用实时价格接口（不保存到数据库）
+      const endpoint = isUnwatched 
+        ? `${API_BASE_URL}/api/v1/prices/live?asset_id=${assetId}&days=365`
+        : `${API_BASE_URL}/api/v1/prices?asset_id=${assetId}&limit=9999`;
+      
+      const response = await axios.get(endpoint);
       const sorted = response.data.sort((a: PriceData, b: PriceData) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
       setPrices(sorted);
     } catch (error) {
       console.error('Failed to fetch prices:', error);
+    }
+  };
+
+  const checkDataGap = async (assetId: string) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/v1/prices/gap-check?asset_id=${assetId}`);
+      setGapCheck(response.data);
+      setShowGapWarning(response.data.has_gap);
+    } catch (error) {
+      console.error('Failed to check data gap:', error);
+    }
+  };
+
+  const handleFillGap = async () => {
+    if (!id || !gapCheck?.has_gap) return;
+    
+    setFillingGap(true);
+    try {
+      await axios.post(`${API_BASE_URL}/api/v1/prices/gap-fill?asset_id=${id}`);
+      // 刷新数据
+      await fetchPrices(id);
+      await checkDataGap(id);
+      setShowGapWarning(false);
+    } catch (error) {
+      console.error('Failed to fill gap:', error);
+      alert('补齐数据失败，请重试');
+    } finally {
+      setFillingGap(false);
+    }
+  };
+
+  const handleBackfill = async () => {
+    if (!id || !backfillStart || !backfillEnd) return;
+    
+    // 验证日期范围（最多20年）
+    const start = new Date(backfillStart);
+    const end = new Date(backfillEnd);
+    const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24) + 1;
+    
+    if (days > 365 * 20) {
+      alert('日期范围不能超过20年，请重新选择');
+      return;
+    }
+    
+    if (end > new Date()) {
+      alert('结束日期不能在未来，请重新选择');
+      return;
+    }
+    
+    setBackfilling(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/v1/prices/backfill-range?asset_id=${id}`, {
+        start_date: backfillStart,
+        end_date: backfillEnd,
+      });
+      // 刷新数据
+      await fetchPrices(id);
+      await checkDataGap(id);
+      setShowBackfillModal(false);
+      setBackfillStart('');
+      setBackfillEnd('');
+      alert(`数据增补完成！共获取 ${response.data.days_filled} 天数据`);
+    } catch (error) {
+      console.error('Failed to backfill:', error);
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`增补数据失败: ${error.response.data.detail}`);
+      } else {
+        alert('增补数据失败，请重试');
+      }
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+  const handleAddToWatchlist = async () => {
+    if (!asset || asset.is_watched || addingToWatchlist) return;
+    
+    setAddingToWatchlist(true);
+    try {
+      // 调用 create_asset API，如果已存在（通过延迟创建）会被标记为 is_watched=true
+      await axios.post(`${API_BASE_URL}/api/v1/assets`, {
+        id: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        asset_type: asset.asset_type,
+        exchange: asset.exchange,
+        currency: asset.currency,
+        data_source: asset.data_source,
+        source_symbol: asset.id,
+        is_active: true,
+      });
+      
+      // 更新本地状态
+      setAsset({ ...asset, is_watched: true });
+      setAddSuccess(true);
+      
+      // 触发后台数据回填（不阻塞 UI）
+      try {
+        await axios.post(`${API_BASE_URL}/api/v1/update/backfill/${asset.id}?days=365`);
+        console.log(`Backfill started for ${asset.id}`);
+      } catch (e) {
+        console.warn('Backfill request failed:', e);
+      }
+      
+      // 3秒后隐藏成功提示
+      setTimeout(() => setAddSuccess(false), 3000);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        // 已存在，更新状态即可
+        setAsset({ ...asset, is_watched: true });
+        setAddSuccess(true);
+        setTimeout(() => setAddSuccess(false), 3000);
+      } else {
+        console.error('Failed to add to watchlist:', error);
+        alert('添加收藏失败，请重试');
+      }
+    } finally {
+      setAddingToWatchlist(false);
     }
   };
 
@@ -305,6 +462,134 @@ export default function AssetDetail() {
           返回{isFromWatchlist ? '关注列表' : '标的列表'}
         </Link>
 
+        {/* 未收藏提示 */}
+        {!asset.is_watched && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}>
+            <span style={{ color: '#f59e0b', fontSize: '14px' }}>
+              此标的尚未添加到关注列表，仅支持查看基本信息
+            </span>
+            <button
+              onClick={handleAddToWatchlist}
+              disabled={addingToWatchlist || addSuccess}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: 'none',
+                background: addSuccess ? '#22c55e' : '#f59e0b',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: addingToWatchlist ? 'not-allowed' : 'pointer',
+                opacity: addingToWatchlist ? 0.7 : 1,
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {addingToWatchlist ? (
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              ) : addSuccess ? (
+                <>
+                  <Star size={16} fill="currentColor" />
+                  已添加
+                </>
+              ) : (
+                <>
+                  <Star size={16} />
+                  添加收藏
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* 添加成功提示 */}
+        {addSuccess && (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#22c55e',
+            fontSize: '14px',
+          }}>
+            <Star size={16} fill="currentColor" />
+            已添加到关注列表，可在关注列表中查看
+          </div>
+        )}
+
+        {/* 数据缺口警告 */}
+        {showGapWarning && gapCheck && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <AlertTriangle size={20} color="#ef4444" />
+              <div>
+                <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                  检测到数据缺口
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                  缺失 {gapCheck.total_missing} 天数据，可能影响分析准确性
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleFillGap}
+              disabled={fillingGap}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: 'none',
+                background: '#ef4444',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: fillingGap ? 'not-allowed' : 'pointer',
+                opacity: fillingGap ? 0.7 : 1,
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {fillingGap ? (
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              ) : (
+                <>
+                  <Plus size={16} />
+                  补齐数据
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
@@ -381,6 +666,26 @@ export default function AssetDetail() {
             价格走势
           </h3>
           <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => setShowBackfillModal(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-secondary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              <Plus size={14} />
+              增补数据
+            </button>
             {timeButtons.map((btn) => (
               <button
                 key={btn.key}
@@ -459,6 +764,128 @@ export default function AssetDetail() {
           ))}
         </div>
       </div>
+
+      {/* 增补数据 Modal */}
+      {showBackfillModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'var(--bg-primary)',
+            borderRadius: '16px',
+            padding: '24px',
+            width: '100%',
+            maxWidth: '400px',
+            margin: '20px',
+            border: '1px solid var(--border-color)',
+          }}>
+            <h3 style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              color: 'var(--text-primary)',
+              margin: '0 0 20px 0',
+            }}>
+              增补历史数据
+            </h3>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                color: 'var(--text-secondary)',
+                marginBottom: '8px',
+              }}>
+                开始日期
+              </label>
+              <input
+                type="date"
+                value={backfillStart}
+                onChange={(e) => setBackfillStart(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                }}
+              />
+            </div>
+            
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '14px',
+                color: 'var(--text-secondary)',
+                marginBottom: '8px',
+              }}>
+                结束日期
+              </label>
+              <input
+                type="date"
+                value={backfillEnd}
+                onChange={(e) => setBackfillEnd(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)',
+                  fontSize: '14px',
+                }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowBackfillModal(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBackfill}
+                disabled={backfilling || !backfillStart || !backfillEnd}
+                style={{
+                  flex: 1,
+                  padding: '10px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  background: 'var(--primary-color)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: backfilling || !backfillStart || !backfillEnd ? 'not-allowed' : 'pointer',
+                  opacity: backfilling || !backfillStart || !backfillEnd ? 0.7 : 1,
+                }}
+              >
+                {backfilling ? '处理中...' : '确认'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

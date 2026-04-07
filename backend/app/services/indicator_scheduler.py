@@ -510,7 +510,7 @@ class ExternalIndicatorService:
             db.close()
     
     def fetch_latest_external(self, indicator_type: str, indicator_id: int) -> Dict:
-        """Fetch and save latest external indicator value."""
+        """Fetch and save latest external indicator value, plus fill missing recent data."""
         fetcher = self.get_fetcher(indicator_type)
         if not fetcher:
             return {
@@ -519,8 +519,13 @@ class ExternalIndicatorService:
                 "message": f"No fetcher registered for type: {indicator_type}"
             }
         
+        # Fetch recent history (last 7 days) to fill gaps
+        from datetime import timedelta
+        end = date.today()
+        start = end - timedelta(days=7)
+        
         try:
-            point = asyncio.run(fetcher.fetch_latest())
+            points = asyncio.run(fetcher.fetch_history(start, end))
         except Exception as e:
             return {
                 "indicator_type": indicator_type,
@@ -528,7 +533,7 @@ class ExternalIndicatorService:
                 "message": f"Fetch failed: {e}"
             }
         
-        if not point:
+        if not points:
             return {
                 "indicator_type": indicator_type,
                 "status": "success",
@@ -538,32 +543,39 @@ class ExternalIndicatorService:
         # Save to database
         db = SessionLocal()
         try:
-            existing = db.query(IndicatorValue).filter(
-                IndicatorValue.indicator_id == indicator_id,
-                IndicatorValue.date == point.date
-            ).first()
+            inserted = 0
+            updated = 0
+            latest_point = points[-1]  # Most recent
             
-            if existing:
-                existing.value = point.value
-                existing.value_text = point.value_text
-                existing.grade = point.grade
-                existing.grade_label = point.grade_label
-                existing.extra_data = point.extra_data or {}
-                existing.timestamp = point.timestamp
-                existing.source = "external_api"
-            else:
-                db_value = IndicatorValue(
-                    indicator_id=indicator_id,
-                    date=point.date,
-                    timestamp=point.timestamp,
-                    value=point.value,
-                    value_text=point.value_text,
-                    grade=point.grade,
-                    grade_label=point.grade_label,
-                    extra_data=point.extra_data or {},
-                    source="external_api"
-                )
-                db.add(db_value)
+            for point in points:
+                existing = db.query(IndicatorValue).filter(
+                    IndicatorValue.indicator_id == indicator_id,
+                    IndicatorValue.date == point.date
+                ).first()
+                
+                if existing:
+                    existing.value = point.value
+                    existing.value_text = point.value_text
+                    existing.grade = point.grade
+                    existing.grade_label = point.grade_label
+                    existing.extra_data = point.extra_data or {}
+                    existing.timestamp = point.timestamp
+                    existing.source = "external_api"
+                    updated += 1
+                else:
+                    db_value = IndicatorValue(
+                        indicator_id=indicator_id,
+                        date=point.date,
+                        timestamp=point.timestamp,
+                        value=point.value,
+                        value_text=point.value_text,
+                        grade=point.grade,
+                        grade_label=point.grade_label,
+                        extra_data=point.extra_data or {},
+                        source="external_api"
+                    )
+                    db.add(db_value)
+                    inserted += 1
             
             # Update indicator
             indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
@@ -576,11 +588,14 @@ class ExternalIndicatorService:
                 "indicator_type": indicator_type,
                 "indicator_id": indicator_id,
                 "status": "success",
-                "date": point.date.isoformat(),
-                "value": point.value,
-                "value_text": point.value_text,
-                "grade": point.grade,
-                "grade_label": point.grade_label
+                "date": latest_point.date.isoformat(),
+                "value": latest_point.value,
+                "value_text": latest_point.value_text,
+                "grade": latest_point.grade,
+                "grade_label": latest_point.grade_label,
+                "filled_count": len(points),
+                "inserted": inserted,
+                "updated": updated
             }
             
         except Exception as e:

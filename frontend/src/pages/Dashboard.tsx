@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { Database, TrendingUp, Activity, Star, ArrowRight } from 'lucide-react';
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 interface StatCardProps {
   title: string;
   value: string | number;
@@ -84,8 +86,8 @@ export default function Dashboard() {
   const fetchData = async () => {
     try {
       const [assetsRes, pricesRes] = await Promise.all([
-        axios.get('/api/v1/assets'),
-        axios.get('/api/v1/prices?limit=1'),
+        axios.get(`${API_BASE_URL}/api/v1/assets`),
+        axios.get(`${API_BASE_URL}/api/v1/prices?limit=1`),
       ]);
       setAssets(assetsRes.data);
       // Get total count from headers or estimate
