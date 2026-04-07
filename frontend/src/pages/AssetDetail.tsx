@@ -208,8 +208,7 @@ export default function AssetDetail() {
     
     setBackfilling(true);
     try {
-      await axios.post(`${API_BASE_URL}/api/v1/prices/backfill`, {
-        asset_id: id,
+      const response = await axios.post(`${API_BASE_URL}/api/v1/prices/backfill-range?asset_id=${id}`, {
         start_date: backfillStart,
         end_date: backfillEnd,
       });
