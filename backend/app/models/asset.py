@@ -32,6 +32,7 @@ class Asset(Base):
     
     # Status
     is_active = Column(Boolean, default=True)
+    is_watched = Column(Boolean, default=False, index=True)  # 是否在关注列表中
     
     # Extra config (JSON)
     config = Column(JSON, default=dict)

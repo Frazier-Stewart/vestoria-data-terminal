@@ -248,3 +248,72 @@ def refresh_prices(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Refresh failed: {str(e)}")
+
+
+@router.get("/live", response_model=List[PriceResponse])
+def get_live_prices(
+    asset_id: str,
+    days: int = Query(365, ge=1, le=730, description="获取最近多少天的数据"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get live price data directly from data source (not from database).
+    
+    This endpoint fetches real-time price data from the configured data source
+    without saving to database. Useful for displaying prices for assets that
+    are not in the watchlist.
+    
+    - asset_id: Asset ID (must exist in database)
+    - days: Number of days to fetch (1-730, default 365)
+    
+    Returns price data in the same format as the regular prices endpoint.
+    """
+    import asyncio
+    from app.fetchers.registry import get_fetcher
+    
+    # Get asset info
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    
+    try:
+        # Get appropriate fetcher
+        fetcher_class = get_fetcher(asset.data_source)
+        fetcher = fetcher_class()
+        
+        # Calculate date range
+        end_date = date.today()
+        start_date = end_date - timedelta(days=days)
+        
+        # Fetch live prices
+        prices = asyncio.run(fetcher.fetch_prices(
+            source_symbol=asset.source_symbol,
+            start=start_date,
+            end=end_date,
+            interval="1d"
+        ))
+        
+        if not prices:
+            return []
+        
+        # Convert to PriceResponse format
+        result = []
+        for p in prices:
+            result.append(PriceResponse(
+                id=0,  # Placeholder, not saved to DB
+                asset_id=asset_id,
+                date=p["date"],
+                interval="1d",
+                open=p.get("open"),
+                high=p.get("high"),
+                low=p.get("low"),
+                close=p["close"],
+                volume=p.get("volume"),
+                created_at=datetime.utcnow()
+            ))
+        
+        return result
+        
+    except Exception as e:
+        print(f"Live price fetch error for {asset_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch live prices: {str(e)}")

@@ -15,6 +15,7 @@ class AssetBase(BaseModel):
     data_source: str = Field(..., description="数据源标识")
     source_symbol: str = Field(..., description="数据源原始代码")
     is_active: bool = Field(default=True)
+    is_watched: bool = Field(default=False, description="是否在关注列表中")
     config: Optional[dict] = Field(default_factory=dict, description="额外配置")
 
 
@@ -27,6 +28,7 @@ class AssetUpdate(BaseModel):
     """Update asset schema."""
     name: Optional[str] = None
     is_active: Optional[bool] = None
+    is_watched: Optional[bool] = None
     config: Optional[dict] = None
 
 

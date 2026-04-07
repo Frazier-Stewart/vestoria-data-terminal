@@ -106,7 +106,7 @@ export default function Watchlist() {
     setLoading(true);
     try {
       // Step 1: Load assets
-      const assetsResponse = await axios.get<Asset[]>(`${API_BASE_URL}/api/v1/assets`);
+      const assetsResponse = await axios.get<Asset[]>(`${API_BASE_URL}/api/v1/assets?watched_only=true`);
       const assetsData = assetsResponse.data || [];
 
       // Step 2: Load prices and sparklines (if we have assets)

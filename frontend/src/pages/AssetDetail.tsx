@@ -2,7 +2,7 @@ import { useParams, Link, useLocation } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { createChart, CandlestickSeries, HistogramSeries, ColorType } from 'lightweight-charts';
-import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle } from 'lucide-react';
+import { ArrowLeft, TrendingUp, Calendar, Activity, Database, Globe, DollarSign, Circle, Star, Loader2 } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -16,6 +16,7 @@ interface Asset {
   currency: string;
   data_source: string;
   is_active: boolean;
+  is_watched?: boolean;
 }
 
 interface PriceData {
@@ -101,6 +102,8 @@ export default function AssetDetail() {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('3M');
   const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+  const [addingToWatchlist, setAddingToWatchlist] = useState(false);
+  const [addSuccess, setAddSuccess] = useState(false);
 
   const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
     setChartContainer(node);
@@ -116,7 +119,13 @@ export default function AssetDetail() {
   const fetchAsset = async (assetId: string) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/v1/assets/${assetId}`);
-      setAsset(response.data);
+      const assetData = response.data;
+      setAsset(assetData);
+      
+      // 未收藏的标的使用实时价格接口
+      if (!assetData.is_watched) {
+        fetchPrices(assetId, true);
+      }
     } catch (error) {
       console.error('Failed to fetch asset:', error);
     } finally {
@@ -124,15 +133,67 @@ export default function AssetDetail() {
     }
   };
 
-  const fetchPrices = async (assetId: string) => {
+  const fetchPrices = async (assetId: string, isUnwatched: boolean = false) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v1/prices?asset_id=${assetId}&limit=9999`);
+      // 未收藏的标的使用实时价格接口（不保存到数据库）
+      const endpoint = isUnwatched 
+        ? `${API_BASE_URL}/api/v1/prices/live?asset_id=${assetId}&days=365`
+        : `${API_BASE_URL}/api/v1/prices?asset_id=${assetId}&limit=9999`;
+      
+      const response = await axios.get(endpoint);
       const sorted = response.data.sort((a: PriceData, b: PriceData) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
       setPrices(sorted);
     } catch (error) {
       console.error('Failed to fetch prices:', error);
+    }
+  };
+
+  const handleAddToWatchlist = async () => {
+    if (!asset || asset.is_watched || addingToWatchlist) return;
+    
+    setAddingToWatchlist(true);
+    try {
+      // 调用 create_asset API，如果已存在（通过延迟创建）会被标记为 is_watched=true
+      await axios.post(`${API_BASE_URL}/api/v1/assets`, {
+        id: asset.id,
+        symbol: asset.symbol,
+        name: asset.name,
+        asset_type: asset.asset_type,
+        exchange: asset.exchange,
+        currency: asset.currency,
+        data_source: asset.data_source,
+        source_symbol: asset.id,
+        is_active: true,
+      });
+      
+      // 更新本地状态
+      setAsset({ ...asset, is_watched: true });
+      setAddSuccess(true);
+      
+      // 触发后台数据回填（不阻塞 UI）
+      try {
+        await axios.post(`${API_BASE_URL}/api/v1/update/backfill/${asset.id}?days=365`);
+        console.log(`Backfill started for ${asset.id}`);
+      } catch (e) {
+        console.warn('Backfill request failed:', e);
+      }
+      
+      // 3秒后隐藏成功提示
+      setTimeout(() => setAddSuccess(false), 3000);
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response?.status === 409) {
+        // 已存在，更新状态即可
+        setAsset({ ...asset, is_watched: true });
+        setAddSuccess(true);
+        setTimeout(() => setAddSuccess(false), 3000);
+      } else {
+        console.error('Failed to add to watchlist:', error);
+        alert('添加收藏失败，请重试');
+      }
+    } finally {
+      setAddingToWatchlist(false);
     }
   };
 
@@ -304,6 +365,78 @@ export default function AssetDetail() {
           <ArrowLeft size={16} />
           返回{isFromWatchlist ? '关注列表' : '标的列表'}
         </Link>
+
+        {/* 未收藏提示 */}
+        {!asset.is_watched && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            padding: '16px 20px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+          }}>
+            <span style={{ color: '#f59e0b', fontSize: '14px' }}>
+              此标的尚未添加到关注列表，仅支持查看基本信息
+            </span>
+            <button
+              onClick={handleAddToWatchlist}
+              disabled={addingToWatchlist || addSuccess}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 16px',
+                borderRadius: '8px',
+                border: 'none',
+                background: addSuccess ? '#22c55e' : '#f59e0b',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: 600,
+                cursor: addingToWatchlist ? 'not-allowed' : 'pointer',
+                opacity: addingToWatchlist ? 0.7 : 1,
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {addingToWatchlist ? (
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              ) : addSuccess ? (
+                <>
+                  <Star size={16} fill="currentColor" />
+                  已添加
+                </>
+              ) : (
+                <>
+                  <Star size={16} />
+                  添加收藏
+                </>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* 添加成功提示 */}
+        {addSuccess && (
+          <div style={{
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            color: '#22c55e',
+            fontSize: '14px',
+          }}>
+            <Star size={16} fill="currentColor" />
+            已添加到关注列表，可在关注列表中查看
+          </div>
+        )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
