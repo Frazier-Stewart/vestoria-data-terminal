@@ -151,7 +151,7 @@ def backfill_asset_prices(
     start = end - timedelta(days=days)
     
     # Use multi-source update function
-    result = update_asset_with_fetcher(asset, start, end, db=db)
+    result = update_asset_with_fetcher(asset, start, end, interval="1d", db=db, close_db=False)
     
     if result["status"] == "error":
         raise HTTPException(status_code=500, detail=result.get("message", "Backfill failed"))

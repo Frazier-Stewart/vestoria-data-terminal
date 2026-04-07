@@ -408,17 +408,18 @@ def update_asset_with_fetcher(
     start: date,
     end: date,
     interval: str = "1d",
-    db: Session = None
+    db: Session = None,
+    close_db: bool = True
 ) -> dict:
     """
     Update price data for an asset using its configured fetcher.
     
     This is a generic function that works with any registered fetcher.
     """
-    close_db = False
+    should_close_db = close_db
     if db is None:
         db = SessionLocal()
-        close_db = True
+        should_close_db = True
     
     try:
         # Get the appropriate fetcher
@@ -480,7 +481,7 @@ def update_asset_with_fetcher(
             "updated": 0
         }
     finally:
-        if close_db:
+        if should_close_db:
             db.close()
 
 
