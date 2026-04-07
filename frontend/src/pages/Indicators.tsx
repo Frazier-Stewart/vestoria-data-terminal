@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Activity, AlertCircle, TrendingUp, Gauge } from 'lucide-react';
 import axios from 'axios';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+
 interface IndicatorTemplate {
   id: string;
   name: string;
@@ -65,13 +67,13 @@ export default function Indicators() {
 
   const fetchIndicators = async () => {
     try {
-      const response = await axios.get('/api/v1/indicators');
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators`);
       setIndicators(response.data);
 
       const valuesMap: Record<number, IndicatorValue> = {};
       for (const indicator of response.data) {
         try {
-          const valueRes = await axios.get(`/api/v1/indicators/${indicator.id}/values?limit=1`);
+          const valueRes = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicator.id}/values?limit=1`);
           if (valueRes.data.length > 0) {
             valuesMap[indicator.id] = valueRes.data[0];
           }
