@@ -11,7 +11,7 @@ export default function Assets() {
   return (
     <div className="animate-fade-in">
       {/* Category Tabs */}
-      <div style={{ marginBottom: '32px' }}>
+      <div style={{ marginBottom: '24px' }}>
         <CategoryTabs 
           activeCategory={activeCategory} 
           onChange={setActiveCategory} 
