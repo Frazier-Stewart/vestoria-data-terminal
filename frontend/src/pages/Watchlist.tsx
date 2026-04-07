@@ -321,9 +321,13 @@ export default function Watchlist() {
 
   return (
     <div className="animate-fade-in">
-      {/* Header */}
-      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: '12px' }}>
+      {/* Header Row: Category Tabs (left) + Actions (right) */}
+      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+        {/* Category Tabs (left) */}
+        <CategoryTabs activeCategory={activeCategory} onChange={setActiveCategory} />
+
+        {/* Actions (right) */}
+        <div style={{ display: 'flex', gap: '12px', flexShrink: 0 }}>
           {/* Refresh Button */}
           {hasWatchlist && (
             <button
@@ -372,9 +376,6 @@ export default function Watchlist() {
           </Link>
         </div>
       </div>
-
-      {/* Category Tabs */}
-      <CategoryTabs activeCategory={activeCategory} onChange={setActiveCategory} />
 
       {/* Missing Data Alert */}
       {hasMissingPrices && (
