@@ -11,7 +11,7 @@ export default function CryptoPanel() {
       <div
         style={{
           display: 'flex',
-          gap: '8px',
+          gap: '10px',
           marginBottom: '20px',
         }}
       >

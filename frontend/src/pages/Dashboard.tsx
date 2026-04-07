@@ -97,24 +97,6 @@ export default function Dashboard() {
 
   return (
     <div className="animate-fade-in">
-      {/* Header */}
-      <div style={{ marginBottom: '32px' }}>
-        <h1
-          style={{
-            fontSize: '32px',
-            fontWeight: 700,
-            color: 'var(--text-primary)',
-            margin: '0 0 8px 0',
-            letterSpacing: '-0.5px',
-          }}
-        >
-          数据终端
-        </h1>
-        <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: 0 }}>
-          统一数据采集与管理系统
-        </p>
-      </div>
-
       {/* Stats Grid */}
       <div
         style={{

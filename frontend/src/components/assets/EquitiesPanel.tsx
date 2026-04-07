@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown, Plus, Loader2, Check } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, Plus, Loader2, Check, ExternalLink } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   GicsSector,
@@ -537,7 +538,9 @@ export default function EquitiesPanel() {
                       >
                         <td style={tdStyle}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                            <div
+                            <Link
+                              to={`/assets/${stock.symbol}`}
+                              state={{ from: 'assets' }}
                               style={{
                                 width: '40px',
                                 height: '40px',
@@ -549,21 +552,39 @@ export default function EquitiesPanel() {
                                 color: sectorConfig.color,
                                 fontSize: '12px',
                                 fontWeight: 600,
+                                textDecoration: 'none',
+                                transition: 'all 0.2s ease',
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.transform = 'scale(1.05)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
                               }}
                             >
                               {stock.symbol.slice(0, 2)}
-                            </div>
+                            </Link>
                             <div>
-                              <p
+                              <Link
+                                to={`/assets/${stock.symbol}`}
+                                state={{ from: 'assets' }}
                                 style={{
                                   fontSize: '15px',
                                   fontWeight: 600,
                                   color: 'var(--text-primary)',
+                                  textDecoration: 'none',
                                   margin: '0 0 2px 0',
+                                  display: 'block',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.color = 'var(--primary-color)';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.color = 'var(--text-primary)';
                                 }}
                               >
                                 {stock.symbol}
-                              </p>
+                              </Link>
                               <p
                                 style={{
                                   fontSize: '13px',
@@ -608,35 +629,55 @@ export default function EquitiesPanel() {
                           </span>
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <button
-                            onClick={() => handleAddToWatchlist(stock)}
-                            disabled={isAdding || isAdded}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '6px 12px',
-                              borderRadius: '6px',
-                              border: 'none',
-                              background: isAdded 
-                                ? 'var(--success-color, #22c55e)' 
-                                : 'var(--primary-color)',
-                              color: 'white',
-                              fontSize: '12px',
-                              fontWeight: 500,
-                              cursor: (isAdding || isAdded) ? 'not-allowed' : 'pointer',
-                              opacity: (isAdding || isAdded) ? 0.7 : 1,
-                            }}
-                          >
-                            {isAdding ? (
-                              <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-                            ) : isAdded ? (
-                              <Check size={14} />
-                            ) : (
-                              <Plus size={14} />
-                            )}
-                            {isAdded ? '已添加' : '添加'}
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                            <Link
+                              to={`/assets/${stock.symbol}`}
+                              state={{ from: 'assets' }}
+                              style={{
+                                padding: '6px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: 'var(--bg-secondary)',
+                                color: 'var(--text-secondary)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                              title="查看详情"
+                            >
+                              <ExternalLink size={14} />
+                            </Link>
+                            <button
+                              onClick={() => handleAddToWatchlist(stock)}
+                              disabled={isAdding || isAdded}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '6px 12px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                background: isAdded 
+                                  ? 'var(--success-color, #22c55e)' 
+                                  : 'var(--primary-color)',
+                                color: 'white',
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                cursor: (isAdding || isAdded) ? 'not-allowed' : 'pointer',
+                                opacity: (isAdding || isAdded) ? 0.7 : 1,
+                              }}
+                            >
+                              {isAdding ? (
+                                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                              ) : isAdded ? (
+                                <Check size={14} />
+                              ) : (
+                                <Plus size={14} />
+                              )}
+                              {isAdded ? '已添加' : '添加'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

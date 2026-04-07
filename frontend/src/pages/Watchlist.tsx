@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Star, Plus, TrendingUp, TrendingDown, Trash2, ExternalLink, RefreshCw, AlertCircle, Download, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import Sparkline from '@/components/Sparkline';
+import CategoryTabs from '@/components/assets/CategoryTabs';
+import type { AssetCategory } from '@/types/assets';
 
 // Enable dayjs plugins
 dayjs.extend(relativeTime);
@@ -77,10 +79,27 @@ export default function Watchlist() {
   const [refreshing, setRefreshing] = useState(false);
   const [backfillingIds, setBackfillingIds] = useState<Set<string>>(new Set());
   const [backfillResults, setBackfillResults] = useState<Record<string, string>>({});
+  const [activeCategory, setActiveCategory] = useState<AssetCategory>('equities');
 
-  // Count assets without price data
-  const missingPriceCount = assets.filter(a => !a.price).length;
+  // Filter assets by category
+  const filteredAssets = assets.filter(asset => {
+    const type = asset.asset_type.toLowerCase();
+    switch (activeCategory) {
+      case 'equities':
+        return ['equity', 'etf', 'stock', 'index'].includes(type);
+      case 'crypto':
+        return type === 'crypto';
+      case 'commodities':
+        return type === 'commodity';
+      default:
+        return true;
+    }
+  });
+
+  // Count assets without price data (from filtered)
+  const missingPriceCount = filteredAssets.filter(a => !a.price).length;
   const hasMissingPrices = missingPriceCount > 0;
+  const hasWatchlist = filteredAssets.length > 0;
 
   // Load watchlist (assets + prices + sparklines)
   const loadWatchlist = useCallback(async () => {
@@ -300,34 +319,15 @@ export default function Watchlist() {
     }
   };
 
-  const hasWatchlist = assets.length > 0;
-
   return (
     <div className="animate-fade-in">
-      {/* Header */}
-      <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-        <div>
-          <h1
-            style={{
-              fontSize: '32px',
-              fontWeight: 700,
-              color: 'var(--text-primary)',
-              margin: '0 0 8px 0',
-              letterSpacing: '-0.5px',
-            }}
-          >
-            关注列表
-          </h1>
-          <p style={{ fontSize: '15px', color: 'var(--text-muted)', margin: 0 }}>
-            管理你关注的标的 ({assets.length})
-            {lastRefresh && (
-              <span style={{ marginLeft: '12px', fontSize: '13px' }}>
-                更新于 {dayjs(lastRefresh).fromNow()}
-              </span>
-            )}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+      {/* Header Row: Category Tabs (left) + Actions (right) */}
+      <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
+        {/* Category Tabs (left) */}
+        <CategoryTabs activeCategory={activeCategory} onChange={setActiveCategory} />
+
+        {/* Actions (right) */}
+        <div style={{ display: 'flex', gap: '12px', flexShrink: 0 }}>
           {/* Refresh Button */}
           {hasWatchlist && (
             <button
@@ -532,7 +532,7 @@ export default function Watchlist() {
               </tr>
             </thead>
             <tbody>
-              {assets.map((asset, index) => {
+              {filteredAssets.map((asset, index) => {
                 const typeStyle = getAssetTypeColor(asset.asset_type);
                 const change = asset.price ? formatChange(asset.price.change, asset.price.change_percent) : null;
                 const freshness = getFreshnessIndicator(asset.price?.data_freshness);
@@ -545,7 +545,7 @@ export default function Watchlist() {
                     key={asset.id}
                     style={{
                       borderBottom:
-                        index < assets.length - 1 ? '1px solid var(--border-color)' : 'none',
+                        index < filteredAssets.length - 1 ? '1px solid var(--border-color)' : 'none',
                       transition: 'background 0.2s',
                     }}
                     onMouseEnter={(e) => {
@@ -577,6 +577,7 @@ export default function Watchlist() {
                         <div>
                           <Link
                             to={`/assets/${asset.id}`}
+                            state={{ from: 'watchlist' }}
                             style={{
                               fontSize: '15px',
                               fontWeight: 600,
@@ -747,6 +748,7 @@ export default function Watchlist() {
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         <Link
                           to={`/assets/${asset.id}`}
+                          state={{ from: 'watchlist' }}
                           style={{
                             padding: '8px',
                             borderRadius: '8px',
@@ -801,18 +803,26 @@ export default function Watchlist() {
             borderRadius: '12px',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
+            justifyContent: 'space-between',
             fontSize: '13px',
             color: 'var(--text-muted)',
           }}
         >
-          <AlertCircle size={16} />
-          <span>
-            价格数据自动每 60 秒刷新一次。
-            <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新
-            <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(1-2天)
-            <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(2天以上)
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <AlertCircle size={16} />
+            <span>
+              价格数据自动每 60 秒刷新一次。
+              <span style={{ color: '#22c55e', marginLeft: '4px' }}>●</span> 最新
+              <span style={{ color: '#f59e0b', marginLeft: '4px' }}>●</span> 滞后(1-2天)
+              <span style={{ color: '#ef4444', marginLeft: '4px' }}>●</span> 过期(2天以上)
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span>当前分类: <strong style={{ color: 'var(--text-primary)' }}>{filteredAssets.length}</strong> / 总计: {assets.length}</span>
+            {lastRefresh && (
+              <span>更新于 {dayjs(lastRefresh).fromNow()}</span>
+            )}
+          </div>
         </div>
       )}
     </div>

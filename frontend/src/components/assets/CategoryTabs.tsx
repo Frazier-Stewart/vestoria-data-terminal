@@ -19,9 +19,7 @@ export default function CategoryTabs({ activeCategory, onChange }: CategoryTabsP
       style={{
         display: 'flex',
         gap: '12px',
-        marginBottom: '24px',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '16px',
+        flexWrap: 'wrap',
       }}
     >
       {tabs.map((tab) => (
