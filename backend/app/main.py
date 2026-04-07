@@ -10,6 +10,9 @@ from app.core.database import engine, Base
 from app.api import api_router
 from app.services.scheduler import get_data_scheduler
 
+# Import fetchers to register them
+import app.fetchers  # noqa: F401
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,

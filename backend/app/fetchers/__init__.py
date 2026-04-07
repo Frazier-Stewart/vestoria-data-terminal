@@ -4,6 +4,7 @@ from app.fetchers.registry import register_fetcher, get_fetcher, list_fetchers
 
 # Import fetchers to register them
 from app.fetchers.yfinance_fetcher import YahooFinanceFetcher
+from app.fetchers.binance_fetcher import BinanceFetcher
 
 __all__ = [
     "BaseFetcher",
@@ -12,4 +13,5 @@ __all__ = [
     "get_fetcher",
     "list_fetchers",
     "YahooFinanceFetcher",
+    "BinanceFetcher",
 ]
