@@ -182,9 +182,16 @@ def get_indicator_values(
     start: date = None,
     end: date = None,
     limit: int = 100,
+    auto_fetch: bool = Query(True, description="数据为空时自动获取历史数据"),
     db: Session = Depends(get_db)
 ):
-    """Get indicator values."""
+    """Get indicator values.
+    
+    - auto_fetch: 如果数据库中没有数据且此参数为 true，自动计算/获取历史数据（默认过去4年）
+    """
+    import asyncio
+    from app.indicators.registry import create_processor
+    
     indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
@@ -197,6 +204,60 @@ def get_indicator_values(
         query = query.filter(IndicatorValue.date <= end)
     
     values = query.order_by(desc(IndicatorValue.date)).limit(limit).all()
+    
+    # 自动获取数据模式：如果数据库为空且允许自动获取
+    if not values and auto_fetch:
+        print(f"[Indicator] No data found for indicator {indicator_id}, auto-fetching...")
+        
+        try:
+            template = indicator.template
+            if template:
+                # 创建处理器
+                processor = create_processor(template.processor_class, indicator.params)
+                if processor:
+                    # 计算过去4年的数据
+                    end_date = date.today()
+                    start_date = end_date - timedelta(days=4*365)  # 4年
+                    
+                    results = asyncio.run(processor.calculate(indicator.asset_id, start_date, end_date))
+                    
+                    if results:
+                        # 保存到数据库
+                        for result in results:
+                            existing = db.query(IndicatorValue).filter(
+                                IndicatorValue.indicator_id == indicator_id,
+                                IndicatorValue.date == result.date
+                            ).first()
+                            
+                            if existing:
+                                existing.value = result.value
+                                existing.value_text = result.value_text
+                                existing.grade = result.grade
+                                existing.grade_label = result.grade_label
+                                existing.extra_data = result.extra_data or {}
+                            else:
+                                db_value = IndicatorValue(
+                                    indicator_id=indicator_id,
+                                    date=result.date,
+                                    timestamp=result.timestamp,
+                                    value=result.value,
+                                    value_text=result.value_text,
+                                    grade=result.grade,
+                                    grade_label=result.grade_label,
+                                    extra_data=result.extra_data or {},
+                                    source="auto_fetch"
+                                )
+                                db.add(db_value)
+                        
+                        db.commit()
+                        print(f"[Indicator] Auto-fetched {len(results)} values for indicator {indicator_id}")
+                        
+                        # 重新查询获取最新数据
+                        values = query.order_by(desc(IndicatorValue.date)).limit(limit).all()
+        except Exception as e:
+            print(f"[Indicator] Auto-fetch failed for indicator {indicator_id}: {e}")
+            # 不抛出异常，返回空列表
+    
     return values[::-1]  # Return in ascending order
 
 
