@@ -1,7 +1,7 @@
 """API router package."""
 from fastapi import APIRouter
 
-from app.api.v1 import assets, prices, update, indicators, scheduler
+from app.api.v1 import assets, prices, update, indicators, scheduler, binance
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -10,3 +10,4 @@ api_router.include_router(prices.router)
 api_router.include_router(update.router)
 api_router.include_router(indicators.router)
 api_router.include_router(scheduler.router)
+api_router.include_router(binance.router)
