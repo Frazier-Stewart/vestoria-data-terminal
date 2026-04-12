@@ -219,11 +219,11 @@ class DataScheduler:
         try:
             db = SessionLocal()
             try:
-                # 1. Find all active stock/etf/index assets
+                # 1. Find all active stock/etf/index/equity assets
                 us_assets = (
                     db.query(Asset)
                     .filter(
-                        Asset.asset_type.in_(["stock", "etf", "index"]),
+                        Asset.asset_type.in_(["stock", "etf", "index", "equity"]),
                         Asset.is_active == True,
                     )
                     .all()

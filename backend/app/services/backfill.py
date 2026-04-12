@@ -403,6 +403,89 @@ def get_source_symbol(asset: Asset) -> str:
         return asset.source_symbol or asset.symbol
 
 
+def update_asset_with_fetcher_by_props(
+    asset_id: str,
+    source_symbol: str,
+    data_source: str,
+    start: date,
+    end: date,
+    interval: str = "1d",
+    db: Session = None
+) -> dict:
+    """
+    Update price data using extracted properties (not ORM object).
+    
+    This avoids DetachedInstanceError after session commit.
+    """
+    if db is None:
+        db = SessionLocal()
+        should_close_db = True
+    else:
+        should_close_db = False
+    
+    try:
+        # Get the appropriate fetcher
+        fetcher_class = get_fetcher(data_source)
+        if not fetcher_class:
+            return {
+                "asset_id": asset_id,
+                "symbol": source_symbol,
+                "status": "error",
+                "message": f"No fetcher found for data_source: {data_source}",
+                "inserted": 0,
+                "updated": 0
+            }
+        
+        fetcher = fetcher_class()
+        
+        print(f"Updating {asset_id} ({source_symbol}) via {data_source}: {start} to {end}")
+        
+        # Fetch prices using async method
+        prices = asyncio.run(fetcher.fetch_prices(source_symbol, start, end, interval))
+        
+        if not prices:
+            return {
+                "asset_id": asset_id,
+                "symbol": source_symbol,
+                "status": "error",
+                "message": "No data fetched",
+                "inserted": 0,
+                "updated": 0
+            }
+        
+        # Convert to DataFrame for compatibility with save_price_data
+        df = pd.DataFrame(prices)
+        
+        # Save to database
+        inserted, updated = save_price_data(db, asset_id, df, interval, source=data_source)
+        
+        return {
+            "asset_id": asset_id,
+            "symbol": source_symbol,
+            "status": "success",
+            "start_date": df["date"].min(),
+            "end_date": df["date"].max(),
+            "records": len(df),
+            "inserted": inserted,
+            "updated": updated,
+            "source": data_source
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {
+            "asset_id": asset_id,
+            "symbol": source_symbol,
+            "status": "error",
+            "message": str(e),
+            "inserted": 0,
+            "updated": 0
+        }
+    finally:
+        if should_close_db:
+            db.close()
+
+
 def update_asset_with_fetcher(
     asset: Asset,
     start: date,
@@ -519,16 +602,30 @@ def incremental_update_multi_source(
         print("-" * 50)
         
         for asset in assets:
-            latest = get_latest_price_date(asset.id, interval, db)
+            # 在 commit 前提取所有需要的属性
+            asset_id = asset.id
+            asset_data_source = asset.data_source
+            asset_source_symbol = asset.source_symbol
+            
+            latest = get_latest_price_date(asset_id, interval, db)
             
             if latest:
                 start = latest - timedelta(days=lookback_days)
-                print(f"  {asset.id} ({asset.data_source}): updating from {start}")
+                print(f"  {asset_id} ({asset_data_source}): updating from {start}")
             else:
                 start = end - timedelta(days=365)
-                print(f"  {asset.id} ({asset.data_source}): no data, fetching from {start}")
+                print(f"  {asset_id} ({asset_data_source}): no data, fetching from {start}")
             
-            result = update_asset_with_fetcher(asset, start, end, interval, db)
+            # 使用提取的属性调用，避免 commit 后访问 ORM 对象
+            result = update_asset_with_fetcher_by_props(
+                asset_id=asset_id,
+                source_symbol=asset_source_symbol,
+                data_source=asset_data_source,
+                start=start,
+                end=end,
+                interval=interval,
+                db=db
+            )
             results.append(result)
             
             status_icon = "✓" if result["status"] == "success" else "✗"
