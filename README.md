@@ -1,85 +1,115 @@
-# 数据终端
+# Data Terminal
 
-统一数据采集与管理系统，支持多数据源价格获取、指标计算和 API 服务。
+统一数据采集与管理系统 - 支持股票、加密货币、大宗商品等多种资产类型的数据终端。
 
-## 功能特性
+## 快速启动（Docker）
 
-- 🔍 **标的搜索** - 跨数据源实时搜索
-- 📊 **价格数据** - 日K数据自动采集与存储
-- ⭐ **关注列表** - 标的管理与自动更新
-- 📈 **指标系统** - 可扩展的指标模板（MA200、估值分档等）
-- 🎯 **市场指标** - 恐慌贪婪指数、VIX 等
-- 🔌 **多数据源** - Yahoo Finance、Binance、AKShare 等
-
-## 快速开始
-
-### 1. 安装依赖
+### 1. 环境准备
 
 ```bash
-cd data-terminal/backend
-uv venv
+cd projects/data-terminal
+
+# 复制环境变量模板
+cp .env.example .env
+
+# 编辑 .env 文件，按需修改配置
+nano .env
+```
+
+### 2. 启动服务
+
+```bash
+# 构建并启动（首次运行）
+docker compose up -d --build
+
+# 仅启动（已构建过镜像）
+docker compose up -d
+
+# 查看日志
+docker compose logs -f
+
+# 停止服务
+docker compose down
+
+# 停止并删除数据卷（谨慎使用）
+docker compose down -v
+```
+
+### 3. 访问应用
+
+- **前端界面**: http://localhost:20261
+- **API 文档**: http://localhost:20261/docs
+- **健康检查**: http://localhost:20261/health
+
+### 4. 数据管理
+
+数据文件存储在 `./data` 目录（可通过 `.env` 中的 `DATA_PATH` 修改）：
+
+```bash
+# 查看数据目录
+ls -la ./data
+
+# 备份数据
+cp -r ./data ./data.backup.$(date +%Y%m%d)
+
+# 恢复数据
+cp -r ./data.backup.20250412 ./data
+```
+
+## 开发模式
+
+### 后端开发
+
+```bash
+cd backend
 source .venv/bin/activate
-uv pip install -e ".[dev]"
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2. 初始化数据库
+### 前端开发
 
 ```bash
-alembic upgrade head
+cd frontend
+npm run dev
 ```
 
-### 3. 启动服务
+## 环境变量说明
 
-```bash
-uvicorn app.main:app --reload
-```
-
-访问 http://localhost:8000/docs 查看 API 文档。
-
-### 4. 添加标的并更新数据
-
-```bash
-# 添加 BTC 标的
-curl -X POST http://localhost:8000/api/v1/assets \
-  -H "Content-Type: application/json" \
-  -d '{
-    "id": "BTC-USD",
-    "symbol": "BTC",
-    "name": "Bitcoin USD",
-    "asset_type": "crypto",
-    "data_source": "yfinance",
-    "source_symbol": "BTC-USD"
-  }'
-
-# 触发价格更新
-curl -X POST http://localhost:8000/api/v1/update?asset_id=BTC-USD
-
-# 查询价格
-curl http://localhost:8000/api/v1/prices?asset_id=BTC-USD&start=2025-01-01&end=2025-12-31
-```
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `APP_NAME` | Data Terminal | 应用名称 |
+| `DEBUG` | false | 调试模式 |
+| `DATABASE_URL` | sqlite:////app/data/data_terminal.db | 数据库路径 |
+| `API_V1_PREFIX` | /api/v1 | API 前缀 |
+| `SCHEDULER_ENABLED` | true | 定时任务开关 |
+| `PROXY_URL` | (空) | 代理服务器地址 |
+| `DATA_PATH` | ./data | 数据目录挂载路径 |
+| `FRONTEND_PORT` | 20261 | 前端服务端口 |
 
 ## 项目结构
 
 ```
 data-terminal/
-├── backend/
-│   ├── app/
-│   │   ├── core/          # 配置、数据库
-│   │   ├── models/        # SQLAlchemy 模型
-│   │   ├── schemas/       # Pydantic 模型
-│   │   ├── api/           # API 路由
-│   │   ├── fetchers/      # 数据获取器
-│   │   └── main.py        # FastAPI 入口
-│   ├── data/              # 数据存储
-│   ├── tests/             # 测试
-│   └── pyproject.toml     # Python 项目配置
-├── docs/                  # 文档
+├── backend/           # FastAPI 后端
+│   ├── app/          # 应用代码
+│   ├── data/         # 数据文件
+│   ├── Dockerfile    # 后端镜像构建
+│   └── pyproject.toml
+├── frontend/          # React + Vite 前端
+│   ├── src/          # 源代码
+│   ├── Dockerfile    # 前端镜像构建
+│   └── nginx.conf    # Nginx 配置
+├── data_explore/      # 数据探索脚本
+├── docs/             # 文档
+├── docker-compose.yml # Docker 编排配置
+└── .env.example      # 环境变量示例
 ```
 
-## 开发计划
+## 主要功能
 
-详见 [docs/ROADMAP.md](docs/ROADMAP.md)
-
-## License
-
-MIT
+- 📊 **多资产支持**: 股票 (Equities)、加密货币 (Crypto)、大宗商品 (Commodities)
+- 📈 **技术指标**: MA200、BTC 恐慌贪婪指数、VIX 等
+- 🔍 **板块行业**: GICS 板块分类、行业龙头筛选
+- ⭐ **自选追踪**: 自定义追踪列表
+- 🔄 **自动更新**: 定时任务自动采集数据
+- 🐳 **Docker 部署**: 一键启动，易于维护
