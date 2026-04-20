@@ -5,10 +5,12 @@ from app.models.price_data import PriceData
 from app.models.indicator import IndicatorTemplate, Indicator, IndicatorValue
 from app.models.scheduler import SchedulerRunLog
 from app.models.sector import Sector, Industry, SectorTopCompany, IndustryTopCompany
+from app.models.admin import Admin
 
 __all__ = [
     "Base", "Asset", "PriceData",
     "IndicatorTemplate", "Indicator", "IndicatorValue",
     "SchedulerRunLog",
     "Sector", "Industry", "SectorTopCompany", "IndustryTopCompany",
+    "Admin",
 ]

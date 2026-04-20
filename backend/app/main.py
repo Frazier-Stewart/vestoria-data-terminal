@@ -9,9 +9,17 @@ from app.core.config import settings
 from app.core.database import engine, Base, SessionLocal
 from app.api import api_router
 from app.services.scheduler import get_data_scheduler
+from app.models.asset import Asset
+from app.models.indicator import Indicator, IndicatorTemplate
+from app.models.admin import Admin
+from app.indicators.btc_fear_greed import init_btc_fear_greed_targets
+from app.indicators.ma200 import init_ma200_targets
+from app.services.auth_service import AuthService
 
 # Import fetchers to register them
 import app.fetchers  # noqa: F401
+# Import indicators to register processors
+import app.indicators  # noqa: F401
 
 # Configure logging
 logging.basicConfig(
@@ -30,36 +38,13 @@ def init_indicators():
     # Add parent directory to path to import init_indicators
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from init_indicators import init_indicator_templates
-    from app.models.indicator import Indicator, IndicatorTemplate
-    from app.models.asset import Asset
-    
     db = SessionLocal()
     try:
         # Initialize templates
         init_indicator_templates(db)
-        
+
         # Create default indicator instances if not exists
-        
-        # 1. BTC Fear & Greed (使用 BTCUSDT 作为关联资产)
-        btc_asset = db.query(Asset).filter(Asset.id == "BTCUSDT").first()
-        fg_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "BTC_FEAR_GREED").first()
-        
-        if btc_asset and fg_template:
-            existing = db.query(Indicator).filter(
-                Indicator.template_id == "BTC_FEAR_GREED",
-                Indicator.asset_id == "BTCUSDT"
-            ).first()
-            if not existing:
-                indicator = Indicator(
-                    template_id="BTC_FEAR_GREED",
-                    asset_id="BTCUSDT",
-                    name="BTC恐慌贪婪指数",
-                    params={"api_url": "https://api.alternative.me/fng/"},
-                    is_active=True
-                )
-                db.add(indicator)
-                db.commit()
-                logging.getLogger("main").info("Created BTC Fear & Greed indicator")
+        created_count = 0
         
         # 2. VIX 波动率指数
         vix_asset = db.query(Asset).filter(Asset.id == "^VIX").first()
@@ -77,7 +62,6 @@ def init_indicators():
                 is_watched=False
             )
             db.add(vix_asset)
-            db.commit()
             logging.getLogger("main").info("Created VIX asset")
         
         vix_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "VIX").first()
@@ -95,16 +79,41 @@ def init_indicators():
                     is_active=True
                 )
                 db.add(indicator)
-                db.commit()
+                created_count += 1
                 logging.getLogger("main").info("Created VIX indicator")
+
+        # 3. Let indicator modules own their required watched-asset bootstrap logic
+        created_count += init_btc_fear_greed_targets(db)
+        created_count += init_ma200_targets(db)
+
+        db.commit()
         
-        logging.getLogger("main").info("Indicators initialized")
+        logging.getLogger("main").info("Indicators initialized, created=%s", created_count)
     except Exception as e:
+        db.rollback()
         logging.getLogger("main").error(f"Failed to initialize indicators: {e}")
     finally:
         db.close()
 
+
+def init_default_admin():
+    """Create default admin if missing."""
+    db = SessionLocal()
+    try:
+        admin = db.query(Admin).filter(Admin.username == "admin").first()
+        if not admin:
+            admin = Admin(
+                username="admin",
+                password_hash=AuthService.get_password_hash("admin123"),
+            )
+            db.add(admin)
+            db.commit()
+            logging.getLogger("main").info("Created default admin user: admin")
+    finally:
+        db.close()
+
 init_indicators()
+init_default_admin()
 
 
 @asynccontextmanager

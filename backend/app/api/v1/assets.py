@@ -417,7 +417,6 @@ def update_asset(asset_id: str, asset_update: AssetUpdate, db: Session = Depends
     update_data = asset_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(asset, field, value)
-    
     db.commit()
     db.refresh(asset)
     return asset
