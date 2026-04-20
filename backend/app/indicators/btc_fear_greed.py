@@ -4,9 +4,11 @@ from typing import List, Optional
 import requests
 import pandas as pd
 from io import StringIO
+from sqlalchemy.orm import Session
 
 from app.indicators.base import BaseIndicatorProcessor, IndicatorResult
 from app.indicators.registry import register_processor
+from app.indicators.init_targets import ensure_binance_asset, ensure_indicator
 
 
 @register_processor
@@ -165,3 +167,25 @@ class BTCFearGreedIndicator(BaseIndicatorProcessor):
             "Extreme Greed": "极度贪婪",
         }
         return mapping.get(classification, classification)
+
+
+def init_btc_fear_greed_targets(db: Session) -> int:
+    """
+    Initialize required asset + indicator instances for BTC Fear & Greed.
+
+    Rules:
+    - Ensure BTCUSDT exists through Binance channel and is watched.
+    - Ensure BTC_FEAR_GREED indicator exists for BTCUSDT.
+    """
+    created = 0
+    btc_asset = ensure_binance_asset(db, asset_id="BTCUSDT", watch=True)
+    if btc_asset:
+        if ensure_indicator(
+            db=db,
+            template_id="BTC_FEAR_GREED",
+            asset_id="BTCUSDT",
+            name="BTC恐慌贪婪指数",
+            params={"api_url": "https://api.alternative.me/fng/"},
+        ):
+            created += 1
+    return created

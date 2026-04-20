@@ -9,6 +9,7 @@ from app.core.database import SessionLocal
 from app.models.price_data import PriceData
 from app.indicators.base import BaseIndicatorProcessor, IndicatorResult
 from app.indicators.registry import register_processor
+from app.indicators.init_targets import ensure_binance_asset, ensure_yfinance_asset, ensure_indicator
 
 
 @register_processor
@@ -157,3 +158,39 @@ class MA200Indicator(BaseIndicatorProcessor):
             return f"显著高估 ({deviation:+.1f}%)"
         else:
             return f"极度高估 ({deviation:+.1f}%)"
+
+
+def init_ma200_targets(db: Session) -> int:
+    """
+    Initialize required assets + MA200 indicators.
+
+    Rules:
+    - Ensure ^GSPC exists through yfinance channel and is watched.
+    - Ensure BTCUSDT exists through Binance channel and is watched.
+    - Ensure MA200 indicator exists for both assets.
+    """
+    created = 0
+
+    targets = [
+        ("^GSPC", "yfinance"),
+        ("BTCUSDT", "binance"),
+    ]
+    for asset_id, source in targets:
+        if source == "yfinance":
+            asset = ensure_yfinance_asset(db, asset_id=asset_id, watch=True)
+        else:
+            asset = ensure_binance_asset(db, asset_id=asset_id, watch=True)
+
+        if not asset:
+            continue
+
+        if ensure_indicator(
+            db=db,
+            template_id="MA200",
+            asset_id=asset_id,
+            name=f"{asset.symbol} 200日均线偏离度",
+            params={"period": 200, "price_field": "close"},
+        ):
+            created += 1
+
+    return created

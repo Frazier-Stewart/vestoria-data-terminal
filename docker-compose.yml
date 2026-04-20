@@ -1,0 +1,44 @@
+# Docker Compose Configuration
+# 用法:
+# 1. 复制 .env.example 为 .env 并配置
+# 2. docker compose up -d --build
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: data-terminal-backend
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/data_terminal.db}
+      - APP_NAME=${APP_NAME:-Data Terminal}
+      - DEBUG=${DEBUG:-false}
+      - API_V1_PREFIX=${API_V1_PREFIX:-/api/v1}
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+      - PROXY_URL=${PROXY_URL:-}
+    volumes:
+      - ${DATA_PATH:-./data}:/app/data
+    networks:
+      - data-terminal-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: data-terminal-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-20261}:80"
+    environment:
+      - API_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - data-terminal-network
+
+networks:
+  data-terminal-network:
+    driver: bridge

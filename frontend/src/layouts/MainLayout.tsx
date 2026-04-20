@@ -10,7 +10,9 @@ import {
   ChevronRight,
   Bell,
   BarChart3,
+  LogOut,
 } from 'lucide-react';
+import { useAuthStore } from '@/stores/auth';
 
 const menuItems = [
   { path: '/', label: '仪表盘', icon: LayoutDashboard },
@@ -25,6 +27,7 @@ export default function MainLayout() {
   const isFromWatchlist = from === 'watchlist';
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const { logout } = useAuthStore();
 
   useEffect(() => {
     const checkMobile = () => {
@@ -177,6 +180,26 @@ export default function MainLayout() {
             }}
           >
             <Bell size={20} />
+          </button>
+          <button
+            onClick={logout}
+            style={{
+              height: '40px',
+              borderRadius: '10px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '0 12px',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              gap: '6px',
+            }}
+            title="退出登录"
+          >
+            <LogOut size={16} />
+            退出
           </button>
         </div>
       </header>
