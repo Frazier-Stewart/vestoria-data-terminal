@@ -14,6 +14,36 @@ import Login from '@/pages/Login';
 // Layouts
 import MainLayout from '@/layouts/MainLayout';
 import { useAuthStore } from '@/stores/auth';
+import { useLocation } from 'react-router-dom';
+
+function RouteTitleManager() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const path = location.pathname;
+    let pageTitle = '数据终端';
+
+    if (path === '/login') {
+      pageTitle = '登录';
+    } else if (path === '/') {
+      pageTitle = '仪表盘';
+    } else if (path === '/assets') {
+      pageTitle = '标的列表';
+    } else if (path.startsWith('/assets/')) {
+      pageTitle = '标的详情';
+    } else if (path === '/watchlist') {
+      pageTitle = '关注列表';
+    } else if (path === '/indicators') {
+      pageTitle = '指标中心';
+    } else if (path.startsWith('/indicators/')) {
+      pageTitle = '指标详情';
+    }
+
+    document.title = `Vestoria - ${pageTitle}`;
+  }, [location.pathname]);
+
+  return null;
+}
 
 function App() {
   const [isDark, setIsDark] = useState(false);
@@ -55,6 +85,7 @@ function App() {
       }}
     >
       <Router>
+        <RouteTitleManager />
         <Routes>
           <Route path="/login" element={<Login />} />
           {isAuthenticated ? (
