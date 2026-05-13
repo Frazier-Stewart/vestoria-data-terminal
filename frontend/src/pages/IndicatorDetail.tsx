@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { createChart, AreaSeries, ColorType } from 'lightweight-charts';
-import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database } from 'lucide-react';
+import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database, Loader2, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -32,12 +32,25 @@ interface IndicatorValue {
   };
 }
 
+interface PriceDataCheck {
+  asset_id: string;
+  total_records: number;
+  earliest_date?: string;
+  latest_date?: string;
+  has_enough_data: boolean;
+  days_coverage: number;
+  needs_backfill: boolean;
+  message: string;
+}
+
+type TimeRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+
 const typeConfig: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
   fear_greed: { label: '恐慌贪婪', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
   vix: { label: 'VIX', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
   ma200: { label: 'MA200', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   pe: { label: '市盈率', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', icon: Activity },
-  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: Database },
+  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   sentiment: { label: '情绪指标', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
   volatility: { label: '波动率', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
 };
@@ -75,12 +88,27 @@ function getChartColors() {
   };
 }
 
+const timeButtons: { key: TimeRange; label: string }[] = [
+  { key: '1M', label: '1月' },
+  { key: '3M', label: '3月' },
+  { key: '6M', label: '6月' },
+  { key: '1Y', label: '1年' },
+  { key: 'ALL', label: '全部' },
+];
+
 export default function IndicatorDetail() {
   const { id } = useParams<{ id: string }>();
   const [indicator, setIndicator] = useState<Indicator | null>(null);
-  const [values, setValues] = useState<IndicatorValue[]>([]);
+  const [allValues, setAllValues] = useState<IndicatorValue[]>([]);
+  const [timeRange, setTimeRange] = useState<TimeRange>('ALL');
   const [loading, setLoading] = useState(true);
   const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [priceCheck, setPriceCheck] = useState<PriceDataCheck | null>(null);
+  const [showBackfillModal, setShowBackfillModal] = useState(false);
+  const [backfillStart, setBackfillStart] = useState('');
+  const [backfillEnd, setBackfillEnd] = useState('');
 
   const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
     setChartContainer(node);
@@ -90,6 +118,7 @@ export default function IndicatorDetail() {
     if (id) {
       fetchIndicator(parseInt(id));
       fetchValues(parseInt(id));
+      fetchPriceDataCheck(parseInt(id));
     }
   }, [id]);
 
@@ -106,15 +135,90 @@ export default function IndicatorDetail() {
 
   const fetchValues = async (indicatorId: number) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/values?limit=500`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/values?limit=5000`);
       const sorted = response.data.sort((a: IndicatorValue, b: IndicatorValue) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
-      setValues(sorted);
+      setAllValues(sorted);
     } catch (error) {
       console.error('Failed to fetch values:', error);
     }
   };
+
+  const fetchPriceDataCheck = async (indicatorId: number) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/price-data-check`);
+      setPriceCheck(response.data);
+      // Auto-set backfill dates if needed
+      if (response.data.needs_backfill && response.data.latest_date) {
+        const latest = dayjs(response.data.latest_date);
+        const sixYearsAgo = dayjs().subtract(6, 'year');
+        setBackfillStart(sixYearsAgo.format('YYYY-MM-DD'));
+        setBackfillEnd(latest.format('YYYY-MM-DD'));
+      }
+    } catch (error) {
+      console.error('Failed to check price data:', error);
+    }
+  };
+
+  const handleRecalculate = async () => {
+    if (!id) return;
+    setRecalculating(true);
+    try {
+      const sixYearsAgo = dayjs().subtract(6, 'year').format('YYYY-MM-DD');
+      const today = dayjs().format('YYYY-MM-DD');
+      await axios.post(`${API_BASE_URL}/api/v1/indicators/${id}/recalculate`, {
+        start: sixYearsAgo,
+        end: today,
+      });
+      await fetchValues(parseInt(id));
+    } catch (error) {
+      console.error('Failed to recalculate:', error);
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`重新计算失败: ${error.response.data.detail}`);
+      } else {
+        alert('重新计算失败，请检查价格数据是否充足');
+      }
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  const handleBackfillPrices = async () => {
+    if (!indicator?.asset_id || !backfillStart || !backfillEnd) return;
+    setBackfilling(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/v1/prices/backfill-range?asset_id=${indicator.asset_id}`,
+        {
+          start_date: backfillStart,
+          end_date: backfillEnd,
+        }
+      );
+      setShowBackfillModal(false);
+      alert(`数据增补完成！共获取 ${response.data.days_filled} 天数据`);
+      await fetchPriceDataCheck(parseInt(id!));
+    } catch (error) {
+      console.error('Failed to backfill:', error);
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`增补数据失败: ${error.response.data.detail}`);
+      } else {
+        alert('增补数据失败，请重试');
+      }
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+  const filteredValues = useMemo(() => {
+    if (timeRange === 'ALL') return allValues;
+    const now = dayjs();
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const cutoff = now.subtract(ranges[timeRange], 'day');
+    return allValues.filter(v => dayjs(v.date).isAfter(cutoff));
+  }, [allValues, timeRange]);
 
   const isFearGreed = indicator?.template?.indicator_type === 'fear_greed' || indicator?.template?.id === 'BTC_FEAR_GREED';
 
@@ -124,9 +228,9 @@ export default function IndicatorDetail() {
     return config.color;
   }, [indicator]);
 
-  // Single effect: create chart + set data
+  // Chart effect
   useEffect(() => {
-    if (!chartContainer || values.length === 0) return;
+    if (!chartContainer || filteredValues.length === 0) return;
 
     const colors = getChartColors();
 
@@ -169,14 +273,13 @@ export default function IndicatorDetail() {
       },
     });
 
-    const chartData = values.map(v => ({
+    const chartData = filteredValues.map(v => ({
       time: v.date as string,
       value: v.value,
     }));
 
     series.setData(chartData);
 
-    // Reference lines for Fear & Greed
     if (isFearGreed) {
       series.createPriceLine({ price: 20, color: 'rgba(220, 38, 38, 0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '极度恐慌' });
       series.createPriceLine({ price: 50, color: 'rgba(100, 116, 139, 0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '中性' });
@@ -194,12 +297,12 @@ export default function IndicatorDetail() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [chartContainer, values, indicatorColor, isFearGreed]);
+  }, [chartContainer, filteredValues, indicatorColor, isFearGreed]);
 
   const stats = useMemo(() => {
-    if (values.length === 0) return null;
-    const latest = values[values.length - 1];
-    const allValues = values.map(v => v.value);
+    if (filteredValues.length === 0) return null;
+    const latest = filteredValues[filteredValues.length - 1];
+    const allValues = filteredValues.map(v => v.value);
     const max = Math.max(...allValues);
     const min = Math.min(...allValues);
     const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
@@ -211,9 +314,9 @@ export default function IndicatorDetail() {
       max,
       min,
       avg: avg.toFixed(2),
-      count: values.length,
+      count: filteredValues.length,
     };
-  }, [values]);
+  }, [filteredValues]);
 
   if (loading) {
     return (
@@ -257,7 +360,7 @@ export default function IndicatorDetail() {
           返回指标列表
         </Link>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
               <div
@@ -304,6 +407,62 @@ export default function IndicatorDetail() {
         </div>
       </div>
 
+      {/* Data insufficient warning */}
+      {priceCheck?.needs_backfill && indicator.asset_id && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <AlertTriangle size={20} color="#ef4444" />
+            <div>
+              <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                价格数据不足6年
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                当前仅 {priceCheck.days_coverage} 天（约 {(priceCheck.days_coverage / 365).toFixed(1)} 年），200周均线需要至少6年数据
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowBackfillModal(true)}
+            disabled={backfilling}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: '#ef4444',
+              color: 'white',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: backfilling ? 'not-allowed' : 'pointer',
+              opacity: backfilling ? 0.7 : 1,
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {backfilling ? (
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <>
+                <Plus size={16} />
+                补充数据
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Stats Cards */}
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
@@ -323,13 +482,62 @@ export default function IndicatorDetail() {
 
       {/* Chart */}
       <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
-          历史走势
-        </h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+            历史走势
+          </h3>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleRecalculate}
+              disabled={recalculating}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '10px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-secondary)',
+                color: 'var(--text-secondary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: recalculating ? 'not-allowed' : 'pointer',
+                opacity: recalculating ? 0.7 : 1,
+                transition: 'all 0.2s',
+              }}
+            >
+              {recalculating ? (
+                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              重新计算
+            </button>
+            {timeButtons.map((btn) => (
+              <button
+                key={btn.key}
+                onClick={() => setTimeRange(btn.key)}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                  color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div style={{ position: 'relative', width: '100%', height: '350px' }}>
           <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
-          {values.length === 0 && (
+          {filteredValues.length === 0 && (
             <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
               暂无历史数据
             </div>
@@ -343,7 +551,7 @@ export default function IndicatorDetail() {
           近期数据
         </h3>
 
-        {values.length > 0 ? (
+        {filteredValues.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -355,7 +563,7 @@ export default function IndicatorDetail() {
                 </tr>
               </thead>
               <tbody>
-                {[...values].reverse().slice(0, 10).map((v, index) => {
+                {[...filteredValues].reverse().slice(0, 10).map((v, index) => {
                   const grade = v.grade ? gradeConfig[v.grade] : null;
                   const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
                   const displayGrade = isFearGreed ? fearGreedGrade : grade;
@@ -382,6 +590,83 @@ export default function IndicatorDetail() {
           <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>暂无数据</div>
         )}
       </div>
+
+      {/* Backfill Modal */}
+      {showBackfillModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'var(--bg-primary)', borderRadius: '16px', padding: '24px',
+            width: '100%', maxWidth: '400px', margin: '20px',
+            border: '1px solid var(--border-color)',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+              增补历史价格数据
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              将拉取 {indicator.asset_id} 从 {backfillStart} 到 {backfillEnd} 的价格数据，用于计算200周均线。
+            </p>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>开始日期</label>
+              <input
+                type="date"
+                value={backfillStart}
+                onChange={(e) => setBackfillStart(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)', fontSize: '14px',
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>结束日期</label>
+              <input
+                type="date"
+                value={backfillEnd}
+                onChange={(e) => setBackfillEnd(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)', fontSize: '14px',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowBackfillModal(false)}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBackfillPrices}
+                disabled={backfilling || !backfillStart || !backfillEnd}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px',
+                  border: 'none', background: 'var(--primary-color)', color: 'white',
+                  fontSize: '14px', fontWeight: 600,
+                  cursor: backfilling || !backfillStart || !backfillEnd ? 'not-allowed' : 'pointer',
+                  opacity: backfilling || !backfillStart || !backfillEnd ? 0.7 : 1,
+                }}
+              >
+                {backfilling ? '处理中...' : '确认增补'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

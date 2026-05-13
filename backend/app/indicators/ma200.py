@@ -1,4 +1,4 @@
-"""MA200 Indicator - 200日均线偏离度."""
+"""MA200W Indicator - 200周均线偏离度."""
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 import pandas as pd
@@ -15,19 +15,19 @@ from app.indicators.init_targets import ensure_binance_asset, ensure_yfinance_as
 @register_processor
 class MA200Indicator(BaseIndicatorProcessor):
     """
-    200日均线偏离度指标.
-    
-    计算当前价格相对于200日均线的偏离程度。
-    用于判断中长期趋势和估值水平。
-    
+    200周均线偏离度指标.
+
+    计算当前价格相对于200周均线的偏离程度。
+    用于判断超长期趋势和估值水平（比200日均线更能过滤短期噪音）。
+
     参数:
-        period: 均线周期，默认200日
+        period: 均线周期，默认200周
         price_field: 使用的价格字段，默认"close"
     """
     
     name = "MA200"
-    display_name = "200日均线偏离度"
-    description = "计算价格相对于200日均线的偏离百分比"
+    display_name = "200周均线偏离度"
+    description = "计算价格相对于200周均线的偏离百分比"
     
     default_params = {
         "period": 200,
@@ -35,7 +35,7 @@ class MA200Indicator(BaseIndicatorProcessor):
     }
     
     param_descriptions = {
-        "period": "均线周期（天数）",
+        "period": "均线周期（周数）",
         "price_field": "使用的价格字段 (open/high/low/close)"
     }
     
@@ -44,7 +44,7 @@ class MA200Indicator(BaseIndicatorProcessor):
         {"name": "value_text", "type": "string", "description": "文本描述", "optional": True},
         {"name": "grade", "type": "string", "description": "档位: very_low/low/medium/high/very_high", "optional": True},
         {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
-        {"name": "ma_value", "type": "float", "description": "200日均线值", "optional": True},
+        {"name": "ma_value", "type": "float", "description": "200周均线值", "optional": True},
         {"name": "current_price", "type": "float", "description": "当前价格", "optional": True},
     ]
     
@@ -67,15 +67,15 @@ class MA200Indicator(BaseIndicatorProcessor):
         start: date,
         end: date
     ) -> List[IndicatorResult]:
-        """Calculate MA200 deviation for given date range."""
+        """Calculate MA200W deviation for given date range."""
         period = self.params.get("period", 200)
         price_field = self.params.get("price_field", "close")
-        
-        # Need extra data for MA calculation (200 days + buffer)
-        buffer_days = period + 30
+
+        # Need ~200 weeks of daily data (~1400 calendar days / ~1000 trading days)
+        buffer_days = period * 7 + 90
         data_start = start - timedelta(days=buffer_days)
-        
-        # Fetch price data from database
+
+        # Fetch daily price data from database
         db = SessionLocal()
         try:
             prices = db.query(PriceData).filter(
@@ -86,12 +86,12 @@ class MA200Indicator(BaseIndicatorProcessor):
             ).order_by(PriceData.date).all()
         finally:
             db.close()
-        
-        # Need at least period + 10 days of data
-        if len(prices) < period + 10:
-            print(f"  Insufficient data: {len(prices)} records, need {period + 10}")
+
+        # Need at least period * 5 + 10 trading days (~1000)
+        if len(prices) < period * 5 + 10:
+            print(f"  Insufficient data: {len(prices)} records, need {period * 5 + 10} (200W requires ~1000 trading days)")
             return []
-        
+
         # Convert to DataFrame
         df = pd.DataFrame([
             {
@@ -104,29 +104,34 @@ class MA200Indicator(BaseIndicatorProcessor):
             for p in prices
         ])
         df.set_index("date", inplace=True)
-        
-        # Calculate 200-day MA directly on daily data
-        df["ma200"] = df[price_field].rolling(window=period, min_periods=period).mean()
-        
+        df.index = pd.to_datetime(df.index)
+
+        # Resample daily to weekly (last close of each week)
+        weekly = df.resample('W').last()
+        weekly["ma200w"] = weekly[price_field].rolling(window=period, min_periods=period).mean()
+
+        # Forward fill weekly MA back to daily level
+        df["ma200w"] = weekly["ma200w"].reindex(df.index, method='ffill')
+
         # Calculate deviation percentage
-        df["deviation"] = ((df[price_field] - df["ma200"]) / df["ma200"] * 100)
-        
+        df["deviation"] = ((df[price_field] - df["ma200w"]) / df["ma200w"] * 100)
+
         # Filter to requested date range
-        df = df[df.index >= start]
-        df = df[df.index <= end]
-        
+        df = df[df.index >= pd.Timestamp(start)]
+        df = df[df.index <= pd.Timestamp(end)]
+
         # Convert to results
         results = []
         for idx, row in df.iterrows():
             if pd.isna(row["deviation"]):
                 continue
-            
+
             value = float(row["deviation"])
             grading = self.apply_grading(value)
-            
+
             # Generate text description
             value_text = self._generate_description(value, grading.get("grade_label"))
-            
+
             results.append(IndicatorResult(
                 date=idx if isinstance(idx, date) else idx.date(),
                 timestamp=datetime.combine(idx if isinstance(idx, date) else idx.date(), datetime.min.time()),
@@ -135,11 +140,11 @@ class MA200Indicator(BaseIndicatorProcessor):
                 grade=grading.get("grade"),
                 grade_label=grading.get("grade_label"),
                 extra_data={
-                    "ma_value": float(row["ma200"]) if not pd.isna(row["ma200"]) else None,
+                    "ma_value": float(row["ma200w"]) if not pd.isna(row["ma200w"]) else None,
                     "current_price": float(row[price_field]) if not pd.isna(row[price_field]) else None,
                 }
             ))
-        
+
         return results
     
     def _generate_description(self, deviation: float, grade_label: Optional[str]) -> str:
@@ -162,12 +167,12 @@ class MA200Indicator(BaseIndicatorProcessor):
 
 def init_ma200_targets(db: Session) -> int:
     """
-    Initialize required assets + MA200 indicators.
+    Initialize required assets + MA200W indicators.
 
     Rules:
     - Ensure ^GSPC exists through yfinance channel and is watched.
     - Ensure BTCUSDT exists through Binance channel and is watched.
-    - Ensure MA200 indicator exists for both assets.
+    - Ensure MA200W indicator exists for both assets.
     """
     created = 0
 
@@ -188,7 +193,7 @@ def init_ma200_targets(db: Session) -> int:
             db=db,
             template_id="MA200",
             asset_id=asset_id,
-            name=f"{asset.symbol} 200日均线偏离度",
+            name=f"{asset.symbol} 200周均线偏离度",
             params={"period": 200, "price_field": "close"},
         ):
             created += 1

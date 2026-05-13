@@ -8,6 +8,7 @@ from sqlalchemy import desc
 from app.core.database import get_db
 from app.models.indicator import IndicatorTemplate, Indicator, IndicatorValue
 from app.models.asset import Asset
+from app.models.price_data import PriceData
 from app.schemas.indicator import (
     IndicatorTemplateCreate, IndicatorTemplateUpdate, IndicatorTemplateResponse,
     IndicatorCreate, IndicatorUpdate, IndicatorResponse,
@@ -129,12 +130,12 @@ def list_indicators(
     db: Session = Depends(get_db)
 ):
     """List indicator instances."""
-    query = db.query(Indicator)
+    query = db.query(Indicator).join(IndicatorTemplate, Indicator.template_id == IndicatorTemplate.id)
     if asset_id:
         query = query.filter(Indicator.asset_id == asset_id)
     if template_id:
         query = query.filter(Indicator.template_id == template_id)
-    return query.offset(skip).limit(limit).all()
+    return query.order_by(IndicatorTemplate.category, Indicator.template_id, Indicator.id).offset(skip).limit(limit).all()
 
 
 @router.get("/{indicator_id}", response_model=IndicatorResponse)
@@ -390,3 +391,146 @@ def get_latest_value(indicator_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No value found")
     
     return value
+
+
+# ============ Recalculate & Price Data Check ============
+
+@router.post("/{indicator_id}/recalculate", response_model=CalculateIndicatorResponse)
+def recalculate_indicator(
+    indicator_id: int,
+    request: CalculateIndicatorRequest = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Recalculate indicator values.
+
+    - Clears all existing indicator values
+    - Calculates new values for the specified date range (default: past 6 years)
+    - Saves results to database
+    """
+    import asyncio
+
+    indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not indicator:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+
+    template = indicator.template
+    if not template:
+        raise HTTPException(status_code=404, detail="Indicator template not found")
+
+    # Determine date range
+    end = request.end if request and request.end else date.today()
+    start = request.start if request and request.start else end - timedelta(days=6*365)
+
+    # Create processor
+    processor = create_processor(template.processor_class, indicator.params)
+    if not processor:
+        raise HTTPException(status_code=500, detail=f"Processor not found: {template.processor_class}")
+
+    # Clear existing values
+    deleted = db.query(IndicatorValue).filter(IndicatorValue.indicator_id == indicator_id).delete()
+    db.commit()
+    print(f"[Recalculate] Cleared {deleted} old values for indicator {indicator_id}")
+
+    # Calculate new values
+    try:
+        results = asyncio.run(processor.calculate(indicator.asset_id, start, end))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Calculation failed: {str(e)}")
+
+    if not results:
+        raise HTTPException(status_code=500, detail="Calculation returned no data (insufficient price data?)")
+
+    # Save to database
+    for result in results:
+        db_value = IndicatorValue(
+            indicator_id=indicator_id,
+            date=result.date,
+            timestamp=result.timestamp,
+            value=result.value,
+            value_text=result.value_text,
+            grade=result.grade,
+            grade_label=result.grade_label,
+            extra_data=result.extra_data or {},
+            source="recalculate"
+        )
+        db.add(db_value)
+
+    indicator.last_calculated_at = datetime.utcnow()
+    db.commit()
+
+    return CalculateIndicatorResponse(
+        indicator_id=indicator_id,
+        calculated_count=len(results),
+        message=f"Recalculated {len(results)} values from {start} to {end}"
+    )
+
+
+@router.get("/{indicator_id}/price-data-check")
+def check_indicator_price_data(
+    indicator_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Check if the associated asset has enough price data for this indicator.
+
+    Returns:
+        - asset_id: associated asset
+        - total_records: number of price records
+        - earliest_date: earliest price date
+        - latest_date: latest price date
+        - has_enough_data: whether data spans at least 6 years
+        - days_coverage: total calendar days covered
+        - needs_backfill: whether backfill is recommended
+    """
+    indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not indicator:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+
+    asset_id = indicator.asset_id
+    if not asset_id:
+        return {
+            "asset_id": None,
+            "total_records": 0,
+            "earliest_date": None,
+            "latest_date": None,
+            "has_enough_data": False,
+            "days_coverage": 0,
+            "needs_backfill": False,
+            "message": "Global indicator (no associated asset)"
+        }
+
+    prices = db.query(PriceData).filter(
+        PriceData.asset_id == asset_id,
+        PriceData.interval == "1d"
+    ).order_by(PriceData.date).all()
+
+    if not prices:
+        return {
+            "asset_id": asset_id,
+            "total_records": 0,
+            "earliest_date": None,
+            "latest_date": None,
+            "has_enough_data": False,
+            "days_coverage": 0,
+            "needs_backfill": True,
+            "message": "No price data found"
+        }
+
+    earliest = prices[0].date
+    latest = prices[-1].date
+    days_coverage = (latest - earliest).days + 1
+    has_enough = days_coverage >= 6 * 365  # ~6 years
+
+    return {
+        "asset_id": asset_id,
+        "total_records": len(prices),
+        "earliest_date": earliest.isoformat(),
+        "latest_date": latest.isoformat(),
+        "has_enough_data": has_enough,
+        "days_coverage": days_coverage,
+        "needs_backfill": not has_enough,
+        "message": f"{len(prices)} records, {days_coverage} days coverage" + (
+            " (sufficient)" if has_enough else " (need more data)"
+        )
+    }

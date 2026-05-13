@@ -10,7 +10,12 @@ from app.indicators.registry import (
 # Import all indicator implementations to register them
 from app.indicators.ma200 import MA200Indicator
 from app.indicators.btc_fear_greed import BTCFearGreedIndicator
-from app.indicators.vix import VIXIndicator
+from app.indicators.volatility_indices import (
+    VXNIndicator,
+    VXDIndicator,
+    OVXIndicator,
+    GVZIndicator,
+)
 
 __all__ = [
     "BaseIndicatorProcessor",
@@ -22,4 +27,8 @@ __all__ = [
     "MA200Indicator",
     "BTCFearGreedIndicator",
     "VIXIndicator",
+    "VXNIndicator",
+    "VXDIndicator",
+    "OVXIndicator",
+    "GVZIndicator",
 ]
