@@ -13,6 +13,7 @@ from app.models.asset import Asset
 from app.models.indicator import Indicator, IndicatorTemplate
 from app.models.admin import Admin
 from app.indicators.btc_fear_greed import init_btc_fear_greed_targets
+from app.indicators.cnn_fear_greed import init_cnn_fear_greed_targets
 from app.indicators.ma200 import init_ma200_targets
 from app.indicators.volatility_indices import init_volatility_targets
 from app.services.auth_service import AuthService
@@ -49,6 +50,7 @@ def init_indicators():
 
         # Let indicator modules own their required watched-asset bootstrap logic
         created_count += init_btc_fear_greed_targets(db)
+        created_count += init_cnn_fear_greed_targets(db)
         created_count += init_ma200_targets(db)
         created_count += init_volatility_targets(db)
 

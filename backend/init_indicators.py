@@ -68,6 +68,33 @@ def init_indicator_templates(db: Session):
             "is_active": True,
         },
         {
+            "id": "CNN_FEAR_GREED",
+            "name": "美股恐慌贪婪指数CNN",
+            "description": "CNN Fear & Greed Index，基于美股市场综合情绪指标。数据源：github.com/whit3rabbit/fear-greed-data",
+            "indicator_type": "sentiment",
+            "category": "sentiment",
+            "processor_class": "CNN_FEAR_GREED",
+            "default_params": {
+                "csv_url": "https://raw.githubusercontent.com/whit3rabbit/fear-greed-data/main/fear-greed.csv"
+            },
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "指数值 (0-100)"},
+                {"name": "value_text", "type": "string", "description": "情绪描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "extreme_fear", "min": 0, "max": 25, "label": "极度恐惧"},
+                    {"grade": "fear", "min": 25, "max": 45, "label": "恐惧"},
+                    {"grade": "neutral", "min": 45, "max": 56, "label": "中性"},
+                    {"grade": "greed", "min": 56, "max": 75, "label": "贪婪"},
+                    {"grade": "extreme_greed", "min": 75, "max": 100, "label": "极度贪婪"},
+                ]
+            },
+            "is_active": True,
+        },
+        {
             "id": "VIX",
             "name": "标普500波动率指数VIX",
             "description": "CBOE Volatility Index，市场恐慌指数",

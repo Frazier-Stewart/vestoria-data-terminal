@@ -10,6 +10,7 @@ from app.indicators.registry import (
 # Import all indicator implementations to register them
 from app.indicators.ma200 import MA200Indicator
 from app.indicators.btc_fear_greed import BTCFearGreedIndicator
+from app.indicators.cnn_fear_greed import CNNFearGreedIndicator
 from app.indicators.volatility_indices import (
     VXNIndicator,
     VXDIndicator,
