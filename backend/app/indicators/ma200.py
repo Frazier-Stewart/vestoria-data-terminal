@@ -108,6 +108,8 @@ class MA200Indicator(BaseIndicatorProcessor):
 
         # Resample daily to weekly (last close of each week)
         weekly = df.resample('W').last()
+        # Forward-fill missing weeks with previous week's close (handles data gaps)
+        weekly[price_field] = weekly[price_field].ffill()
         weekly["ma200w"] = weekly[price_field].rolling(window=period, min_periods=period).mean()
 
         # Forward fill weekly MA back to daily level
