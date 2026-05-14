@@ -242,8 +242,8 @@ class DataScheduler:
             price_results = incremental_update(asset_ids=asset_ids, lookback_days=5)
             results["prices"] = self._summarise_price_results(price_results)
 
-            # 3. Update VIX indicator
-            indicator_results = self._update_indicators_for_assets(asset_ids, ["VIX"])
+            # 3. Update VIX + CNN Fear & Greed indicators
+            indicator_results = self._update_indicators_for_assets(asset_ids, ["VIX", "CNN_FEAR_GREED"])
             results["indicators"] = indicator_results
 
             self._finish_run_log(run_log, "success", results)
