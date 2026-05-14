@@ -14,7 +14,7 @@
 ## 快速开始
 
 ```bash
-cd data_explore/binance
+cd db_scripts/binance_explore
 
 # 1. 罗列所有 USDT 交易对
 python3 01_list_spot_symbols.py
@@ -52,5 +52,5 @@ python3 04_fetch_prices_chunked.py
 
 ## 参考
 
-- [Binance API Docs](https://binance-docs.github.io/apidocs/spot/en/)
+- [Binance API Docs](https://binance_explore-docs.github.io/apidocs/spot/en/)
 - [SKILL.md](./skills/spot/SKILL.md) - 详细 API 说明

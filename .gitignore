@@ -33,7 +33,7 @@ data/*.db
 data/*.db.*
 
 # Experiments (keep dir, ignore contents)
-data_explore/binance/skills/
+db_scripts/binance_explore/skills/
 
 # Test coverage
 htmlcov/
