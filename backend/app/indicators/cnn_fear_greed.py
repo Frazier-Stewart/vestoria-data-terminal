@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.indicators.base import BaseIndicatorProcessor, IndicatorResult
 from app.indicators.registry import register_processor
 from app.indicators.init_targets import ensure_yfinance_asset, ensure_indicator
+from app.core.config import settings
 
 
 @register_processor
@@ -17,9 +18,10 @@ class CNNFearGreedIndicator(BaseIndicatorProcessor):
     CNN Fear & Greed Index - 美股市场恐慌贪婪指数.
 
     数据来源:
-    - 历史数据: https://raw.githubusercontent.com/whit3rabbit/fear-greed-data/main/fear-greed.csv
-      (覆盖 2011-01-03 至今，约 3800+ 个交易日)
-    - 实时更新: CNN API (production.dataviz.cnn.io)，但反爬虫严格，优先用 CSV
+    - 历史数据: CSV (github.com/whit3rabbit/fear-greed-data)
+      覆盖 2011-01-03 至今，约 3800+ 个交易日
+    - 实时/增量: CNN API (production.dataviz.cnn.io)
+      支持最近 ~3.7 年历史，需代理 + 浏览器 headers
 
     指数范围: 0-100
     - 0-24:   极度恐惧 (Extreme Fear)
@@ -55,6 +57,25 @@ class CNNFearGreedIndicator(BaseIndicatorProcessor):
     }
 
     _cached_df: Optional[pd.DataFrame] = None
+    _api_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://edition.cnn.com/markets/fear-and-greed",
+        "Origin": "https://edition.cnn.com",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "cross-site",
+    }
+
+    @property
+    def _proxies(self) -> Optional[dict]:
+        if settings.PROXY_URL:
+            return {"http": settings.PROXY_URL, "https": settings.PROXY_URL}
+        return None
 
     def _load_csv(self) -> Optional[pd.DataFrame]:
         """Load fear & greed data from CSV URL."""
@@ -74,22 +95,75 @@ class CNNFearGreedIndicator(BaseIndicatorProcessor):
             print(f"[CNN_FearGreed] Error loading CSV: {e}")
             return None
 
+    def _fetch_api(self, start: date, end: date) -> Optional[pd.DataFrame]:
+        """Fetch data from CNN API. Supports up to ~3.7 years of history."""
+        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start.isoformat()}"
+        try:
+            response = requests.get(
+                url, headers=self._api_headers, proxies=self._proxies, timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            print(f"[CNN_FearGreed] API request failed: {e}")
+            return None
+
+        records = data.get("fear_and_greed_historical", {}).get("data", [])
+        if not records:
+            return None
+
+        rows = []
+        for item in records:
+            ts_ms = item.get("x")
+            value = item.get("y")
+            rating = item.get("rating", "")
+            if ts_ms is None or value is None:
+                continue
+            item_date = datetime.utcfromtimestamp(ts_ms / 1000).date()
+            if item_date < start or item_date > end:
+                continue
+            rows.append({"Date": item_date, "Fear Greed": value, "Rating": rating})
+
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows).sort_values("Date").reset_index(drop=True)
+        return df
+
     async def calculate(
         self,
         asset_id: str,
         start: date,
         end: date
     ) -> List[IndicatorResult]:
-        """Fetch CNN Fear & Greed data for given date range."""
-        df = self._load_csv()
+        """Fetch CNN Fear & Greed data for given date range.
+
+        Strategy:
+        - If date range is within last ~3 years, try CNN API first (more real-time)
+        - Fall back to CSV (full history, 2011-present)
+        """
+        days = (end - start).days
+        df = None
+
+        # Try API for recent data (< 3.5 years, API limit ~1300 records)
+        if days < 3.5 * 365:
+            df = self._fetch_api(start, end)
+            if df is not None and not df.empty:
+                print(f"[CNN_FearGreed] Using API data: {len(df)} records")
+
+        # Fall back to CSV
+        if df is None:
+            df = self._load_csv()
+            if df is not None and not df.empty:
+                mask = (df["Date"] >= start) & (df["Date"] <= end)
+                df = df[mask]
+                print(f"[CNN_FearGreed] Using CSV data: {len(df)} records")
+
         if df is None or df.empty:
             return []
 
-        mask = (df["Date"] >= start) & (df["Date"] <= end)
-        filtered = df[mask]
-
         results = []
-        for _, row in filtered.iterrows():
+        for _, row in df.iterrows():
             value = float(row["Fear Greed"])
             rating = row["Rating"]
             grading = self.apply_grading(value)
@@ -103,14 +177,50 @@ class CNNFearGreedIndicator(BaseIndicatorProcessor):
                 grade_label=grading.get("grade_label"),
                 extra_data={
                     "rating": rating,
-                    "source": "cnn_fear_greed_csv",
+                    "source": "cnn_fear_greed_api" if "api" in str(row.get("source", "")) else "cnn_fear_greed_csv",
                 }
             ))
 
         return results
 
     async def calculate_latest(self, asset_id: str) -> Optional[IndicatorResult]:
-        """Fetch latest CNN Fear & Greed value."""
+        """Fetch latest CNN Fear & Greed value.
+
+        Priority: CNN API (real-time) → CSV (daily snapshot)
+        """
+        # Try API first for real-time data
+        url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+        try:
+            response = requests.get(
+                url, headers=self._api_headers, proxies=self._proxies, timeout=30
+            )
+            response.raise_for_status()
+            data = response.json()
+            fg = data.get("fear_and_greed", {})
+            score = fg.get("score")
+            rating = fg.get("rating", "")
+            ts_str = fg.get("timestamp", "")
+
+            if score is not None:
+                latest_date = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).date() if ts_str else date.today()
+                grading = self.apply_grading(float(score))
+                print(f"[CNN_FearGreed] Latest from API: {latest_date} = {score} ({rating})")
+                return IndicatorResult(
+                    date=latest_date,
+                    timestamp=datetime.combine(latest_date, datetime.min.time()),
+                    value=float(score),
+                    value_text=self._get_chinese_label(rating),
+                    grade=grading.get("grade"),
+                    grade_label=grading.get("grade_label"),
+                    extra_data={
+                        "rating": rating,
+                        "source": "cnn_fear_greed_api",
+                    }
+                )
+        except Exception as e:
+            print(f"[CNN_FearGreed] API latest failed: {e}, falling back to CSV")
+
+        # Fall back to CSV
         df = self._load_csv()
         if df is None or df.empty:
             return None
