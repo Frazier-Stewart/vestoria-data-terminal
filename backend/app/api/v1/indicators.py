@@ -41,7 +41,7 @@ def list_templates(
     indicator_type: str = None,
     category: str = None,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 100000,
     db: Session = Depends(get_db)
 ):
     """List indicator templates."""
@@ -204,6 +204,7 @@ def get_indicator_values(
     if end:
         query = query.filter(IndicatorValue.date <= end)
     
+    print(f"[IndicatorValues] indicator_id={indicator_id}, limit={limit}, start={start}, end={end}")
     values = query.order_by(desc(IndicatorValue.date)).limit(limit).all()
     
     # 自动获取数据模式：如果数据库为空且允许自动获取
@@ -472,16 +473,19 @@ def check_indicator_price_data(
     db: Session = Depends(get_db)
 ):
     """
-    Check if the associated asset has enough price data for this indicator.
+    Check if the associated asset has enough continuous price data for this indicator.
 
     Returns:
         - asset_id: associated asset
         - total_records: number of price records
         - earliest_date: earliest price date
         - latest_date: latest price date
-        - has_enough_data: whether data spans at least 6 years
-        - days_coverage: total calendar days covered
-        - needs_backfill: whether backfill is recommended
+        - has_enough_data: whether max continuous span >= 6 years
+        - days_coverage: total calendar days covered (earliest -> latest)
+        - max_continuous_days: longest gap-free segment
+        - max_continuous_start/end: date range of longest continuous segment
+        - gaps: list of detected gaps (>5 days between records)
+        - needs_backfill: True if max continuous < 6 years or no data
     """
     indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not indicator:
@@ -496,6 +500,10 @@ def check_indicator_price_data(
             "latest_date": None,
             "has_enough_data": False,
             "days_coverage": 0,
+            "max_continuous_days": 0,
+            "max_continuous_start": None,
+            "max_continuous_end": None,
+            "gaps": [],
             "needs_backfill": False,
             "message": "Global indicator (no associated asset)"
         }
@@ -513,14 +521,79 @@ def check_indicator_price_data(
             "latest_date": None,
             "has_enough_data": False,
             "days_coverage": 0,
+            "max_continuous_days": 0,
+            "max_continuous_start": None,
+            "max_continuous_end": None,
+            "gaps": [],
             "needs_backfill": True,
             "message": "No price data found"
         }
 
-    earliest = prices[0].date
-    latest = prices[-1].date
+    dates = [p.date for p in prices]
+    earliest = dates[0]
+    latest = dates[-1]
     days_coverage = (latest - earliest).days + 1
-    has_enough = days_coverage >= 6 * 365  # ~6 years
+
+    # Detect gaps (>5 days between consecutive records; covers long weekends/holidays)
+    GAP_THRESHOLD = 5
+    gaps = []
+    continuous_segments = []
+    segment_start = dates[0]
+
+    for i in range(1, len(dates)):
+        prev_date = dates[i - 1]
+        curr_date = dates[i]
+        gap_days = (curr_date - prev_date).days - 1
+
+        if gap_days > GAP_THRESHOLD:
+            # Close current segment
+            segment_end = prev_date
+            segment_days = (segment_end - segment_start).days + 1
+            continuous_segments.append({
+                "start": segment_start,
+                "end": segment_end,
+                "days": segment_days,
+                "records": i - dates.index(segment_start)
+            })
+            gaps.append({
+                "start_date": prev_date.isoformat(),
+                "end_date": curr_date.isoformat(),
+                "days": gap_days
+            })
+            # Start new segment
+            segment_start = curr_date
+
+    # Close final segment
+    segment_end = dates[-1]
+    segment_days = (segment_end - segment_start).days + 1
+    continuous_segments.append({
+        "start": segment_start,
+        "end": segment_end,
+        "days": segment_days,
+        "records": len(dates) - dates.index(segment_start)
+    })
+
+    # Find longest continuous segment
+    max_segment = max(continuous_segments, key=lambda s: s["days"]) if continuous_segments else None
+    max_continuous_days = max_segment["days"] if max_segment else 0
+    max_continuous_start = max_segment["start"] if max_segment else None
+    max_continuous_end = max_segment["end"] if max_segment else None
+
+    # Require max continuous span >= 6 years (~2190 days) for reliable MA200W etc.
+    MIN_REQUIRED_DAYS = 6 * 365
+    has_enough = max_continuous_days >= MIN_REQUIRED_DAYS
+
+    if not has_enough:
+        message = (
+            f"{len(prices)} records, max continuous {max_continuous_days} days "
+            f"({max_continuous_start} ~ {max_continuous_end}). "
+            f"Need {MIN_REQUIRED_DAYS} continuous days."
+        )
+    else:
+        message = (
+            f"{len(prices)} records, {days_coverage} days coverage, "
+            f"max continuous {max_continuous_days} days (sufficient)"
+        )
 
     return {
         "asset_id": asset_id,
@@ -529,8 +602,10 @@ def check_indicator_price_data(
         "latest_date": latest.isoformat(),
         "has_enough_data": has_enough,
         "days_coverage": days_coverage,
+        "max_continuous_days": max_continuous_days,
+        "max_continuous_start": max_continuous_start.isoformat() if max_continuous_start else None,
+        "max_continuous_end": max_continuous_end.isoformat() if max_continuous_end else None,
+        "gaps": gaps,
         "needs_backfill": not has_enough,
-        "message": f"{len(prices)} records, {days_coverage} days coverage" + (
-            " (sufficient)" if has_enough else " (need more data)"
-        )
+        "message": message
     }

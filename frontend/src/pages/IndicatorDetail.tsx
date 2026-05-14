@@ -39,6 +39,10 @@ interface PriceDataCheck {
   latest_date?: string;
   has_enough_data: boolean;
   days_coverage: number;
+  max_continuous_days: number;
+  max_continuous_start?: string;
+  max_continuous_end?: string;
+  gaps: Array<{ start_date: string; end_date: string; days: number }>;
   needs_backfill: boolean;
   message: string;
 }
@@ -420,15 +424,36 @@ export default function IndicatorDetail() {
           justifyContent: 'space-between',
           gap: '16px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
             <AlertTriangle size={20} color="#ef4444" />
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
                 价格数据不足6年
               </div>
               <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                当前仅 {priceCheck.days_coverage} 天（约 {(priceCheck.days_coverage / 365).toFixed(1)} 年），200周均线需要至少6年数据
+                {priceCheck.gaps && priceCheck.gaps.length > 0 ? (
+                  <>
+                    总覆盖 {priceCheck.days_coverage} 天，但最大连续区间仅 {priceCheck.max_continuous_days} 天
+                    （约 {(priceCheck.max_continuous_days / 365).toFixed(1)} 年），存在 {priceCheck.gaps.length} 处数据断档。
+                    200周均线需要至少6年连续数据。
+                  </>
+                ) : (
+                  <>
+                    当前仅 {priceCheck.max_continuous_days} 天（约 {(priceCheck.max_continuous_days / 365).toFixed(1)} 年），200周均线需要至少6年数据
+                  </>
+                )}
               </div>
+              {priceCheck.gaps && priceCheck.gaps.length > 0 && (
+                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  断档：
+                  {priceCheck.gaps.slice(0, 3).map((g, i) => (
+                    <span key={i} style={{ marginRight: '12px' }}>
+                      {g.start_date} ~ {g.end_date}（缺 {g.days} 天）
+                    </span>
+                  ))}
+                  {priceCheck.gaps.length > 3 && `等共 ${priceCheck.gaps.length} 处`}
+                </div>
+              )}
             </div>
           </div>
           <button
