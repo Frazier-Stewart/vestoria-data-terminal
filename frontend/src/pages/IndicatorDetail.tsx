@@ -422,34 +422,23 @@ export default function IndicatorDetail() {
         }))
     );
 
-    // MA200W line (blue solid) - hide last value label
-    const maSeries = chart.addSeries(LineSeries, {
-      color: '#3b82f6',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceFormat: {
-        type: 'price',
-        precision: 2,
-        minMove: 0.01,
-      },
-    });
-    const maData = filteredPriceChartData
-      .filter(d => d.ma_value != null)
-      .map(d => ({
-        time: d.date,
-        value: d.ma_value!,
-      }));
-    maSeries.setData(maData);
-
     // Get multiplier config from indicator or use default
     const maConfig = indicator?.config;
     const multipliers = maConfig?.multipliers || [1.0, 1.5, 2.0, 2.5, 3.0];
     const labels = maConfig?.labels || ["极度低估", "低估", "合理估值", "高估", "极度高估"];
     const maColors = maConfig?.colors || ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"];
 
-    // Create multiplier series dynamically
-    const multiplierSeries: Array<ReturnType<typeof chart.addSeries>> = [];
-    for (let i = 1; i < multipliers.length; i++) {
+    // Build MA data
+    const maData = filteredPriceChartData
+      .filter(d => d.ma_value != null)
+      .map(d => ({
+        time: d.date,
+        value: d.ma_value!,
+      }));
+
+    // Create series for all multipliers (including 1x/MA200W)
+    const multiplierSeries: Array<{ series: ReturnType<typeof chart.addSeries>, multiplier: number, label: string, color: string }> = [];
+    for (let i = 0; i < multipliers.length; i++) {
       const series = chart.addSeries(LineSeries, {
         color: maColors[i],
         lineWidth: 2,
@@ -457,30 +446,21 @@ export default function IndicatorDetail() {
         priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       });
       series.setData(maData.map(d => ({ time: d.time, value: d.value * multipliers[i] })));
-      multiplierSeries.push(series);
+      multiplierSeries.push({ series, multiplier: multipliers[i], label: labels[i], color: maColors[i] });
     }
 
-    // Price lines for reference levels with valuation labels
+    // Price lines for reference levels - show price only, no labels
     const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
-      // MA base line (1x)
-      maSeries.createPriceLine({
-        price: latestMA,
-        color: maColors[0],
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: labels[0],
-      });
-      // Multiplier lines
-      for (let i = 0; i < multiplierSeries.length; i++) {
-        multiplierSeries[i].createPriceLine({
-          price: latestMA * multipliers[i + 1],
-          color: maColors[i + 1],
+      // All multiplier lines including 1x (MA200W)
+      for (const item of multiplierSeries) {
+        item.series.createPriceLine({
+          price: latestMA * item.multiplier,
+          color: item.color,
           lineWidth: 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: labels[i + 1],
+          title: '',
         });
       }
     }
@@ -862,18 +842,15 @@ export default function IndicatorDetail() {
           </div>
           {/* Dynamic legend based on config */}
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-            {(indicator?.config ? [
-              { label: 'MA200W', color: indicator.config.colors?.[0] || '#3b82f6' },
-              ...indicator.config.multipliers.slice(1).map((m, i) => ({
-                label: `${m}×`,
-                color: indicator.config.colors?.[i + 1] || '#64748b'
-              }))
-            ] : [
-              { label: 'MA200W', color: '#3b82f6' },
-              { label: '1.5×', color: '#22c55e' },
-              { label: '2×', color: '#eab308' },
-              { label: '2.5×', color: '#f97316' },
-              { label: '3×', color: '#dc2626' },
+            {(indicator?.config ? indicator.config.multipliers.map((m: number, i: number) => ({
+              label: m === 1.0 ? `${indicator.config.labels?.[i] || '低估'}(MA200W)` : `${indicator.config.labels?.[i] || ''}(${m}x)`,
+              color: indicator.config.colors?.[i] || '#64748b'
+            })) : [
+              { label: '极度低估(1.0x)', color: '#3b82f6' },
+              { label: '低估(1.5x)', color: '#22c55e' },
+              { label: '合理估值(2.0x)', color: '#eab308' },
+              { label: '高估(2.5x)', color: '#f97316' },
+              { label: '极度高估(3.0x)', color: '#dc2626' },
             ]).map((item, i) => (
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 <span style={{ width: '20px', height: '3px', background: item.color, borderRadius: '2px' }} />

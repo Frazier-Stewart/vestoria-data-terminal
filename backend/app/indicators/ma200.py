@@ -43,12 +43,12 @@ class MA200Indicator(BaseIndicatorProcessor):
     # 用于前端绘制价格图表时的参考线
     multiplier_config = {
         "default": {
-            "multipliers": [1.0, 1.5, 2.0, 2.5, 3.0],
+            "multipliers": [1.0, 1.5, 2.0, 2.5, 4],
             "labels": ["极度低估", "低估", "合理估值", "高估", "极度高估"],
             "colors": ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"],
         },
         "^GSPC": {
-            "multipliers": [1.0, 1.1, 1.2, 1.3, 1.4],
+            "multipliers": [0.8, 1, 1.2, 1.4, 1.6],
             "labels": ["极度低估", "低估", "合理估值", "高估", "极度高估"],
             "colors": ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"],
         },
