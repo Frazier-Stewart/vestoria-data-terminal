@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { createChart, AreaSeries, ColorType } from 'lightweight-charts';
+import { createChart, AreaSeries, LineSeries, CandlestickSeries, ColorType, PriceScaleMode } from 'lightweight-charts';
 import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database, Loader2, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -30,6 +30,16 @@ interface IndicatorValue {
     ma_value?: number;
     current_price?: number;
   };
+}
+
+interface PriceChartData {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+  ma_value?: number;
 }
 
 interface PriceDataCheck {
@@ -107,15 +117,22 @@ export default function IndicatorDetail() {
   const [timeRange, setTimeRange] = useState<TimeRange>('ALL');
   const [loading, setLoading] = useState(true);
   const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+  const [priceChartContainer, setPriceChartContainer] = useState<HTMLDivElement | null>(null);
   const [recalculating, setRecalculating] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
   const [priceCheck, setPriceCheck] = useState<PriceDataCheck | null>(null);
+  const [priceChartData, setPriceChartData] = useState<PriceChartData[]>([]);
   const [showBackfillModal, setShowBackfillModal] = useState(false);
   const [backfillStart, setBackfillStart] = useState('');
   const [backfillEnd, setBackfillEnd] = useState('');
+  const [isLogScale, setIsLogScale] = useState(false);
+  const [isPriceLogScale, setIsPriceLogScale] = useState(false);
 
   const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
     setChartContainer(node);
+  }, []);
+  const priceChartContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setPriceChartContainer(node);
   }, []);
 
   useEffect(() => {
@@ -123,6 +140,7 @@ export default function IndicatorDetail() {
       fetchIndicator(parseInt(id));
       fetchValues(parseInt(id));
       fetchPriceDataCheck(parseInt(id));
+      fetchPriceChartData(parseInt(id));
     }
   }, [id]);
 
@@ -146,6 +164,15 @@ export default function IndicatorDetail() {
       setAllValues(sorted);
     } catch (error) {
       console.error('Failed to fetch values:', error);
+    }
+  };
+
+  const fetchPriceChartData = async (indicatorId: number) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/price-chart-data`);
+      setPriceChartData(response.data);
+    } catch (error) {
+      console.error('Failed to fetch price chart data:', error);
     }
   };
 
@@ -224,7 +251,18 @@ export default function IndicatorDetail() {
     return allValues.filter(v => dayjs(v.date).isAfter(cutoff));
   }, [allValues, timeRange]);
 
+  const filteredPriceChartData = useMemo(() => {
+    if (timeRange === 'ALL') return priceChartData;
+    const now = dayjs();
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const cutoff = now.subtract(ranges[timeRange], 'day');
+    return priceChartData.filter(d => dayjs(d.date).isAfter(cutoff));
+  }, [priceChartData, timeRange]);
+
   const isFearGreed = indicator?.template?.indicator_type === 'fear_greed' || indicator?.template?.id === 'BTC_FEAR_GREED';
+  const isMA200 = indicator?.template?.id === 'MA200';
 
   const indicatorColor = useMemo(() => {
     if (!indicator) return '#6366f1';
@@ -249,13 +287,14 @@ export default function IndicatorDetail() {
         horzLines: { color: colors.gridColor },
       },
       width: chartContainer.clientWidth,
-      height: 350,
+      height: 525,
       crosshair: {
         vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
         horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
       },
       rightPriceScale: {
         borderColor: colors.borderColor,
+        mode: isLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
       },
       timeScale: {
         borderColor: colors.borderColor,
@@ -301,7 +340,117 @@ export default function IndicatorDetail() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [chartContainer, filteredValues, indicatorColor, isFearGreed]);
+  }, [chartContainer, filteredValues, indicatorColor, isFearGreed, isLogScale]);
+
+  // Price + MA200W chart effect (only for MA200 indicators)
+  useEffect(() => {
+    if (!isMA200 || !priceChartContainer || priceChartData.length === 0) return;
+
+    const colors = getChartColors();
+
+    const chart = createChart(priceChartContainer, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.textColor,
+        fontFamily: "'Inter', -apple-system, sans-serif",
+      },
+      grid: {
+        vertLines: { color: colors.gridColor },
+        horzLines: { color: colors.gridColor },
+      },
+      width: priceChartContainer.clientWidth,
+      height: 525,
+      crosshair: {
+        vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+        horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+        mode: isPriceLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+    });
+
+    // Candlestick (OHLC)
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderUpColor: '#22c55e',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
+    });
+    candleSeries.setData(
+      filteredPriceChartData
+        .filter(d => d.open != null && d.high != null && d.low != null && d.close != null)
+        .map(d => ({
+          time: d.date,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }))
+    );
+
+    // MA200W line (blue solid)
+    const maSeries = chart.addSeries(LineSeries, {
+      color: '#3b82f6',
+      lineWidth: 2,
+      priceFormat: {
+        type: 'price',
+        precision: 2,
+        minMove: 0.01,
+      },
+    });
+    maSeries.setData(
+      filteredPriceChartData
+        .filter(d => d.ma_value != null)
+        .map(d => ({
+          time: d.date,
+          value: d.ma_value!,
+        }))
+    );
+
+    // Dynamic valuation zones based on latest MA200W
+    const latestMA = filteredPriceChartData
+      .filter(d => d.ma_value != null)
+      .pop()?.ma_value;
+    if (latestMA != null) {
+      const zones = [
+        { price: latestMA, color: '#3b82f6', title: '200WMA' },
+        { price: latestMA * 1.5, color: '#22c55e', title: '1.5×' },
+        { price: latestMA * 2, color: '#eab308', title: '2×' },
+        { price: latestMA * 2.5, color: '#f97316', title: '2.5×' },
+      ];
+      zones.forEach(z => {
+        maSeries.createPriceLine({
+          price: z.price,
+          color: z.color,
+          lineWidth: 2,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: z.title,
+        });
+      });
+    }
+
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      chart.applyOptions({ width: priceChartContainer.clientWidth });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [priceChartContainer, filteredPriceChartData, isMA200, isPriceLogScale]);
 
   const stats = useMemo(() => {
     if (filteredValues.length === 0) return null;
@@ -392,7 +541,7 @@ export default function IndicatorDetail() {
             </div>
           </div>
 
-          {stats && (
+          {stats && !isMA200 && (
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '36px', fontWeight: 700, color: 'var(--text-primary)' }}>
                 {stats.latest.toFixed(1)}
@@ -489,7 +638,7 @@ export default function IndicatorDetail() {
       )}
 
       {/* Stats Cards */}
-      {stats && (
+      {stats && !isMA200 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
             { label: '最大值', value: stats.max.toFixed(1), color: '#22c55e' },
@@ -505,116 +654,224 @@ export default function IndicatorDetail() {
         </div>
       )}
 
-      {/* Chart */}
-      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-            历史走势
-          </h3>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleRecalculate}
-              disabled={recalculating}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                borderRadius: '10px',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-secondary)',
-                color: 'var(--text-secondary)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: recalculating ? 'not-allowed' : 'pointer',
-                opacity: recalculating ? 0.7 : 1,
-                transition: 'all 0.2s',
-              }}
-            >
-              {recalculating ? (
-                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
-              ) : (
-                <RefreshCw size={14} />
-              )}
-              重新计算
-            </button>
-            {timeButtons.map((btn) => (
+      {/* Chart - only for non-MA200 indicators */}
+      {!isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              历史走势
+            </h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <button
-                key={btn.key}
-                onClick={() => setTimeRange(btn.key)}
+                onClick={() => setIsLogScale(!isLogScale)}
                 style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
                   padding: '8px 16px',
                   borderRadius: '10px',
                   border: '1px solid var(--border-color)',
-                  background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
-                  color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                  background: isLogScale ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                  color: isLogScale ? 'white' : 'var(--text-secondary)',
                   fontSize: '13px',
                   fontWeight: 600,
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                 }}
               >
-                {btn.label}
+                {isLogScale ? '对数' : '线性'}
               </button>
-            ))}
+              <button
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: recalculating ? 'not-allowed' : 'pointer',
+                  opacity: recalculating ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {recalculating ? (
+                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                重新计算
+              </button>
+              {timeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  onClick={() => setTimeRange(btn.key)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                    color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ position: 'relative', width: '100%', height: '525px' }}>
+            <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+            {filteredValues.length === 0 && (
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
+                暂无历史数据
+              </div>
+            )}
           </div>
         </div>
+      )}
 
-        <div style={{ position: 'relative', width: '100%', height: '350px' }}>
-          <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
-          {filteredValues.length === 0 && (
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
-              暂无历史数据
+      {/* Price + MA200W Chart */}
+      {isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              价格与200周均线
+            </h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setIsPriceLogScale(!isPriceLogScale)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: isPriceLogScale ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                  color: isPriceLogScale ? 'white' : 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {isPriceLogScale ? '对数' : '线性'}
+              </button>
+              <button
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: recalculating ? 'not-allowed' : 'pointer',
+                  opacity: recalculating ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {recalculating ? (
+                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                重新计算
+              </button>
+              {timeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  onClick={() => setTimeRange(btn.key)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                    color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
             </div>
+          </div>
+          <div style={{ position: 'relative', width: '100%', height: '525px' }}>
+            <div ref={priceChartContainerRef} style={{ width: '100%', height: '100%' }} />
+            {priceChartData.length === 0 && (
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
+                暂无价格数据
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Values Table - hidden for MA200 */}
+      {!isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+            近期数据
+          </h3>
+
+          {filteredValues.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>日期</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>数值</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>档位</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...filteredValues].reverse().slice(0, 10).map((v, index) => {
+                    const grade = v.grade ? gradeConfig[v.grade] : null;
+                    const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
+                    const displayGrade = isFearGreed ? fearGreedGrade : grade;
+
+                    return (
+                      <tr key={v.id} style={{ borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none' }}>
+                        <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>{v.date}</td>
+                        <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{v.value.toFixed(2)}</td>
+                        <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                          {displayGrade ? (
+                            <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: `${displayGrade.color}20`, color: displayGrade.color }}>
+                              {displayGrade.label}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>{v.value_text || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>暂无数据</div>
           )}
         </div>
-      </div>
-
-      {/* Recent Values Table */}
-      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
-          近期数据
-        </h3>
-
-        {filteredValues.length > 0 ? (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-secondary)' }}>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>日期</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>数值</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>档位</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>说明</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...filteredValues].reverse().slice(0, 10).map((v, index) => {
-                  const grade = v.grade ? gradeConfig[v.grade] : null;
-                  const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
-                  const displayGrade = isFearGreed ? fearGreedGrade : grade;
-
-                  return (
-                    <tr key={v.id} style={{ borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none' }}>
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>{v.date}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{v.value.toFixed(2)}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                        {displayGrade ? (
-                          <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: `${displayGrade.color}20`, color: displayGrade.color }}>
-                            {displayGrade.label}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>{v.value_text || '-'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>暂无数据</div>
-        )}
-      </div>
+      )}
 
       {/* Backfill Modal */}
       {showBackfillModal && (

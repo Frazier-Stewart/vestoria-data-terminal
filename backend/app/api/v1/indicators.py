@@ -609,3 +609,67 @@ def check_indicator_price_data(
         "needs_backfill": not has_enough,
         "message": message
     }
+
+
+@router.get("/{indicator_id}/price-chart-data")
+def get_price_chart_data(
+    indicator_id: int,
+    start: date = None,
+    end: date = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get OHLC price data + MA200W for the indicator's associated asset.
+
+    Returns merged data suitable for candlestick + line chart rendering.
+    """
+    indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not indicator:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+
+    asset_id = indicator.asset_id
+    if not asset_id:
+        return []
+
+    # Query price data (OHLC)
+    price_query = db.query(PriceData).filter(
+        PriceData.asset_id == asset_id,
+        PriceData.interval == "1d"
+    ).order_by(PriceData.date)
+    if start:
+        price_query = price_query.filter(PriceData.date >= start)
+    if end:
+        price_query = price_query.filter(PriceData.date <= end)
+    prices = price_query.all()
+
+    # Query indicator values for ma_value
+    iv_query = db.query(IndicatorValue).filter(
+        IndicatorValue.indicator_id == indicator_id
+    ).order_by(IndicatorValue.date)
+    if start:
+        iv_query = iv_query.filter(IndicatorValue.date >= start)
+    if end:
+        iv_query = iv_query.filter(IndicatorValue.date <= end)
+    ivs = iv_query.all()
+
+    # Build ma_value lookup by date
+    ma_lookup = {}
+    for iv in ivs:
+        ma = iv.extra_data.get("ma_value") if iv.extra_data else None
+        if ma is not None:
+            ma_lookup[iv.date.isoformat()] = float(ma)
+
+    # Merge price data with ma_value
+    results = []
+    for p in prices:
+        results.append({
+            "date": p.date.isoformat(),
+            "open": float(p.open) if p.open is not None else None,
+            "high": float(p.high) if p.high is not None else None,
+            "low": float(p.low) if p.low is not None else None,
+            "close": float(p.close) if p.close is not None else None,
+            "volume": int(p.volume) if p.volume is not None else None,
+            "ma_value": ma_lookup.get(p.date.isoformat()),
+        })
+
+    return results
