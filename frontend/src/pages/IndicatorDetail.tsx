@@ -444,7 +444,7 @@ export default function IndicatorDetail() {
     });
     ma3xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 3 })));
 
-    // Price lines for reference levels with valuation labels
+    // Price lines for reference levels with valuation labels (no price labels)
     const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
       maSeries.createPriceLine({
@@ -452,7 +452,7 @@ export default function IndicatorDetail() {
         color: '#3b82f6',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: '极度低估',
       });
       ma15xSeries.createPriceLine({
@@ -460,7 +460,7 @@ export default function IndicatorDetail() {
         color: '#22c55e',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: '低估',
       });
       ma2xSeries.createPriceLine({
@@ -468,7 +468,7 @@ export default function IndicatorDetail() {
         color: '#eab308',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: '合理估值',
       });
       ma25xSeries.createPriceLine({
@@ -476,7 +476,7 @@ export default function IndicatorDetail() {
         color: '#f97316',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: '高估',
       });
       ma3xSeries.createPriceLine({
@@ -484,7 +484,7 @@ export default function IndicatorDetail() {
         color: '#dc2626',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: '极度高估',
       });
     }
