@@ -376,6 +376,9 @@ export default function IndicatorDetail() {
       },
     });
 
+    // Filter data to only include dates with MA values for consistent display
+    const dataWithMA = filteredPriceChartData.filter(d => d.ma_value != null);
+
     // Candlestick (OHLC) - hide last value label
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
@@ -387,7 +390,7 @@ export default function IndicatorDetail() {
       lastValueVisible: false,
     });
     candleSeries.setData(
-      filteredPriceChartData
+      dataWithMA
         .filter(d => d.open != null && d.high != null && d.low != null && d.close != null)
         .map(d => ({
           time: d.date,
@@ -409,12 +412,10 @@ export default function IndicatorDetail() {
         minMove: 0.01,
       },
     });
-    const maData = filteredPriceChartData
-      .filter(d => d.ma_value != null)
-      .map(d => ({
-        time: d.date,
-        value: d.ma_value!,
-      }));
+    const maData = dataWithMA.map(d => ({
+      time: d.date,
+      value: d.ma_value!,
+    }));
     maSeries.setData(maData);
 
     // MA200W multiplier lines (1.5x, 2x, 2.5x, 3x) - solid lines, hide last value labels
