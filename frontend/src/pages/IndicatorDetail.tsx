@@ -497,6 +497,73 @@ export default function IndicatorDetail() {
     };
   }, [filteredValues]);
 
+  // MA200区间天数统计（使用历史MA值，不是最新的）
+  const ma200Stats = useMemo(() => {
+    if (!isMA200 || priceChartData.length === 0) return null;
+
+    const maConfig = indicator?.config;
+    const multipliers = maConfig?.multipliers || [1.0, 1.5, 2.0, 2.5, 3.0];
+    const labels = maConfig?.labels || ["极度低估", "低估", "合理估值", "高估", "极度高估"];
+    const colors = maConfig?.colors || ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"];
+
+    // 按时间范围过滤数据（使用与图表相同的逻辑）
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const filteredData = timeRange === 'ALL'
+      ? priceChartData
+      : priceChartData.filter(d => dayjs(d.date).isAfter(dayjs().subtract(ranges[timeRange], 'day')));
+
+    // 计算每个数据点的 price/ma 比率
+    const ratios = filteredData
+      .filter(d => d.ma_value && d.ma_value > 0)
+      .map(d => ({
+        date: d.date,
+        ratio: d.close / d.ma_value,
+      }));
+
+    // 统计各区间的天数
+    const sortedMultipliers = [...multipliers].sort((a, b) => a - b);
+    const intervals: Array<{
+      min: number;
+      max: number;
+      label: string;
+      color: string;
+      count: number;
+    }> = [];
+
+    for (let i = 0; i < sortedMultipliers.length; i++) {
+      const min = i === 0 ? 0 : sortedMultipliers[i - 1];
+      const max = sortedMultipliers[i];
+      const originalIndex = multipliers.indexOf(sortedMultipliers[i]);
+      intervals.push({
+        min,
+        max,
+        label: labels[originalIndex] || `≤${max}x`,
+        color: colors[originalIndex] || '#64748b',
+        count: ratios.filter(r => r.ratio > min && r.ratio <= max).length,
+      });
+    }
+
+    // 添加最高区间 (>最大multiplier)
+    const maxMultiplier = sortedMultipliers[sortedMultipliers.length - 1];
+    intervals.push({
+      min: maxMultiplier,
+      max: Infinity,
+      label: `>${maxMultiplier}x`,
+      color: '#64748b',
+      count: ratios.filter(r => r.ratio > maxMultiplier).length,
+    });
+
+    const totalDays = ratios.length;
+
+    return {
+      intervals,
+      totalDays,
+      validDataCount: ratios.length,
+    };
+  }, [isMA200, priceChartData, indicator?.config, timeRange]);
+
   if (loading) {
     return (
       <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
@@ -870,6 +937,88 @@ export default function IndicatorDetail() {
                 暂无价格数据
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* MA200 估值区间天数统计 */}
+      {isMA200 && ma200Stats && ma200Stats.totalDays > 0 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginTop: '20px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+            估值区间分布
+            <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '12px' }}>
+              共 {ma200Stats.totalDays} 个交易日
+            </span>
+          </h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-secondary)' }}>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>估值区间</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>天数</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>占比</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>参考价位</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ma200Stats.intervals.map((interval, index) => (
+                  <tr key={index} style={{ borderBottom: index < ma200Stats.intervals.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                    <td style={{ padding: '14px 16px' }}>
+                      <span style={{
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        background: `${interval.color}20`,
+                        color: interval.color,
+                      }}>
+                        {interval.label}
+                      </span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                        {interval.min === 0 ? `< ${interval.max}x` : interval.max === Infinity ? `> ${interval.min}x` : `${interval.min}x - ${interval.max}x`}
+                      </span>
+                    </td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {interval.count}
+                    </td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          flex: 1,
+                          height: '8px',
+                          background: 'var(--bg-secondary)',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          maxWidth: '100px',
+                        }}>
+                          <div style={{
+                            width: `${ma200Stats.totalDays > 0 ? (interval.count / ma200Stats.totalDays * 100) : 0}%`,
+                            height: '100%',
+                            background: interval.color,
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', minWidth: '45px' }}>
+                          {ma200Stats.totalDays > 0 ? ((interval.count / ma200Stats.totalDays) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      {(() => {
+                        const latestMA = priceChartData[priceChartData.length - 1]?.ma_value;
+                        if (!latestMA) return '-';
+                        const priceAtMin = latestMA * interval.min;
+                        const priceAtMax = interval.max === Infinity ? null : latestMA * interval.max;
+                        if (interval.max === Infinity) {
+                          return `> ${priceAtMin.toFixed(2)}`;
+                        }
+                        return `${priceAtMin.toFixed(2)} - ${priceAtMax?.toFixed(2)}`;
+                      })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
