@@ -407,35 +407,49 @@ export default function IndicatorDetail() {
         minMove: 0.01,
       },
     });
-    maSeries.setData(
-      filteredPriceChartData
-        .filter(d => d.ma_value != null)
-        .map(d => ({
-          time: d.date,
-          value: d.ma_value!,
-        }))
-    );
-
-    // Dynamic valuation zones based on latest MA200W
-    const latestMA = filteredPriceChartData
+    const maData = filteredPriceChartData
       .filter(d => d.ma_value != null)
-      .pop()?.ma_value;
+      .map(d => ({
+        time: d.date,
+        value: d.ma_value!,
+      }));
+    maSeries.setData(maData);
+
+    // MA200W multiplier lines (1.5x, 2x, 2.5x)
+    const ma15xSeries = chart.addSeries(LineSeries, {
+      color: '#22c55e',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    ma15xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 1.5 })));
+
+    const ma2xSeries = chart.addSeries(LineSeries, {
+      color: '#eab308',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    ma2xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2 })));
+
+    const ma25xSeries = chart.addSeries(LineSeries, {
+      color: '#f97316',
+      lineWidth: 1,
+      lineStyle: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    ma25xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2.5 })));
+
+    // Price lines for reference levels
+    const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
-      const zones = [
-        { price: latestMA, color: '#3b82f6', title: '200WMA' },
-        { price: latestMA * 1.5, color: '#22c55e', title: '1.5×' },
-        { price: latestMA * 2, color: '#eab308', title: '2×' },
-        { price: latestMA * 2.5, color: '#f97316', title: '2.5×' },
-      ];
-      zones.forEach(z => {
-        maSeries.createPriceLine({
-          price: z.price,
-          color: z.color,
-          lineWidth: 2,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: z.title,
-        });
+      maSeries.createPriceLine({
+        price: latestMA,
+        color: '#3b82f6',
+        lineWidth: 1,
+        lineStyle: 3,
+        axisLabelVisible: true,
+        title: 'MA200W',
       });
     }
 
@@ -813,6 +827,29 @@ export default function IndicatorDetail() {
                 </button>
               ))}
             </div>
+          </div>
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '20px', height: '3px', background: '#3b82f6', borderRadius: '2px' }} />
+              MA200W
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '20px', height: '2px', background: '#22c55e', borderRadius: '2px' }} />
+              1.5×
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '20px', height: '2px', background: '#eab308', borderRadius: '2px' }} />
+              2×
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '20px', height: '2px', background: '#f97316', borderRadius: '2px' }} />
+              2.5×
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '12px', background: '#22c55e', borderRadius: '2px', opacity: 0.7 }} />
+              <span style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }} />
+              K线
+            </span>
           </div>
           <div style={{ position: 'relative', width: '100%', height: '525px' }}>
             <div ref={priceChartContainerRef} style={{ width: '100%', height: '100%' }} />
