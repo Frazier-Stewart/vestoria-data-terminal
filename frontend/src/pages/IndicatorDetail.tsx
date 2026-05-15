@@ -415,27 +415,24 @@ export default function IndicatorDetail() {
       }));
     maSeries.setData(maData);
 
-    // MA200W multiplier lines (1.5x, 2x, 2.5x)
+    // MA200W multiplier lines (1.5x, 2x, 2.5x) - solid lines
     const ma15xSeries = chart.addSeries(LineSeries, {
       color: '#22c55e',
-      lineWidth: 1,
-      lineStyle: 2,
+      lineWidth: 2,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma15xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 1.5 })));
 
     const ma2xSeries = chart.addSeries(LineSeries, {
       color: '#eab308',
-      lineWidth: 1,
-      lineStyle: 2,
+      lineWidth: 2,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma2xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2 })));
 
     const ma25xSeries = chart.addSeries(LineSeries, {
       color: '#f97316',
-      lineWidth: 1,
-      lineStyle: 2,
+      lineWidth: 2,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma25xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2.5 })));
@@ -834,15 +831,15 @@ export default function IndicatorDetail() {
               MA200W
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '2px', background: '#22c55e', borderRadius: '2px' }} />
+              <span style={{ width: '20px', height: '3px', background: '#22c55e', borderRadius: '2px' }} />
               1.5×
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '2px', background: '#eab308', borderRadius: '2px' }} />
+              <span style={{ width: '20px', height: '3px', background: '#eab308', borderRadius: '2px' }} />
               2×
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '2px', background: '#f97316', borderRadius: '2px' }} />
+              <span style={{ width: '20px', height: '3px', background: '#f97316', borderRadius: '2px' }} />
               2.5×
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
