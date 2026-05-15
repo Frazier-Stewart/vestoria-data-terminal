@@ -196,13 +196,20 @@ export default function IndicatorDetail() {
     if (!id) return;
     setRecalculating(true);
     try {
-      const sixYearsAgo = dayjs().subtract(6, 'year').format('YYYY-MM-DD');
+      // Use earliest price data date for full calculation
+      let startDate: string;
+      if (priceCheck?.earliest_date) {
+        startDate = priceCheck.earliest_date;
+      } else {
+        startDate = dayjs().subtract(6, 'year').format('YYYY-MM-DD');
+      }
       const today = dayjs().format('YYYY-MM-DD');
       await axios.post(`${API_BASE_URL}/api/v1/indicators/${id}/recalculate`, {
-        start: sixYearsAgo,
+        start: startDate,
         end: today,
       });
       await fetchValues(parseInt(id));
+      await fetchPriceChartData(parseInt(id));
     } catch (error) {
       console.error('Failed to recalculate:', error);
       if (axios.isAxiosError(error) && error.response?.data?.detail) {
