@@ -376,7 +376,7 @@ export default function IndicatorDetail() {
       },
     });
 
-    // Candlestick (OHLC)
+    // Candlestick (OHLC) - hide last value label
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
       downColor: '#ef4444',
@@ -384,6 +384,7 @@ export default function IndicatorDetail() {
       borderDownColor: '#ef4444',
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
+      lastValueVisible: false,
     });
     candleSeries.setData(
       filteredPriceChartData
@@ -397,10 +398,11 @@ export default function IndicatorDetail() {
         }))
     );
 
-    // MA200W line (blue solid)
+    // MA200W line (blue solid) - hide last value label
     const maSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
+      lastValueVisible: false,
       priceFormat: {
         type: 'price',
         precision: 2,
@@ -415,10 +417,11 @@ export default function IndicatorDetail() {
       }));
     maSeries.setData(maData);
 
-    // MA200W multiplier lines (1.5x, 2x, 2.5x, 3x) - solid lines
+    // MA200W multiplier lines (1.5x, 2x, 2.5x, 3x) - solid lines, hide last value labels
     const ma15xSeries = chart.addSeries(LineSeries, {
       color: '#22c55e',
       lineWidth: 2,
+      lastValueVisible: false,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma15xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 1.5 })));
@@ -426,6 +429,7 @@ export default function IndicatorDetail() {
     const ma2xSeries = chart.addSeries(LineSeries, {
       color: '#eab308',
       lineWidth: 2,
+      lastValueVisible: false,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma2xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2 })));
@@ -433,6 +437,7 @@ export default function IndicatorDetail() {
     const ma25xSeries = chart.addSeries(LineSeries, {
       color: '#f97316',
       lineWidth: 2,
+      lastValueVisible: false,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma25xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2.5 })));
@@ -440,11 +445,12 @@ export default function IndicatorDetail() {
     const ma3xSeries = chart.addSeries(LineSeries, {
       color: '#dc2626',
       lineWidth: 2,
+      lastValueVisible: false,
       priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
     });
     ma3xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 3 })));
 
-    // Price lines for reference levels with valuation labels (no price labels)
+    // Price lines for reference levels with valuation labels
     const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
       maSeries.createPriceLine({
@@ -452,7 +458,7 @@ export default function IndicatorDetail() {
         color: '#3b82f6',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '极度低估',
       });
       ma15xSeries.createPriceLine({
@@ -460,7 +466,7 @@ export default function IndicatorDetail() {
         color: '#22c55e',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '低估',
       });
       ma2xSeries.createPriceLine({
@@ -468,7 +474,7 @@ export default function IndicatorDetail() {
         color: '#eab308',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '合理估值',
       });
       ma25xSeries.createPriceLine({
@@ -476,7 +482,7 @@ export default function IndicatorDetail() {
         color: '#f97316',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '高估',
       });
       ma3xSeries.createPriceLine({
@@ -484,7 +490,7 @@ export default function IndicatorDetail() {
         color: '#dc2626',
         lineWidth: 1,
         lineStyle: 2,
-        axisLabelVisible: false,
+        axisLabelVisible: true,
         title: '极度高估',
       });
     }
