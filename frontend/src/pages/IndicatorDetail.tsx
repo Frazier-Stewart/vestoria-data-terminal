@@ -415,7 +415,7 @@ export default function IndicatorDetail() {
       }));
     maSeries.setData(maData);
 
-    // MA200W multiplier lines (1.5x, 2x, 2.5x) - solid lines
+    // MA200W multiplier lines (1.5x, 2x, 2.5x, 3x) - solid lines
     const ma15xSeries = chart.addSeries(LineSeries, {
       color: '#22c55e',
       lineWidth: 2,
@@ -437,16 +437,55 @@ export default function IndicatorDetail() {
     });
     ma25xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2.5 })));
 
-    // Price lines for reference levels
+    const ma3xSeries = chart.addSeries(LineSeries, {
+      color: '#dc2626',
+      lineWidth: 2,
+      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+    });
+    ma3xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 3 })));
+
+    // Price lines for reference levels with valuation labels
     const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
       maSeries.createPriceLine({
         price: latestMA,
         color: '#3b82f6',
         lineWidth: 1,
-        lineStyle: 3,
+        lineStyle: 2,
         axisLabelVisible: true,
-        title: 'MA200W',
+        title: '极度低估',
+      });
+      ma15xSeries.createPriceLine({
+        price: latestMA * 1.5,
+        color: '#22c55e',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '低估',
+      });
+      ma2xSeries.createPriceLine({
+        price: latestMA * 2,
+        color: '#eab308',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '合理估值',
+      });
+      ma25xSeries.createPriceLine({
+        price: latestMA * 2.5,
+        color: '#f97316',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '高估',
+      });
+      ma3xSeries.createPriceLine({
+        price: latestMA * 3,
+        color: '#dc2626',
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: '极度高估',
       });
     }
 
@@ -841,6 +880,10 @@ export default function IndicatorDetail() {
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '20px', height: '3px', background: '#f97316', borderRadius: '2px' }} />
               2.5×
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '20px', height: '3px', background: '#dc2626', borderRadius: '2px' }} />
+              3×
             </span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '12px', height: '12px', background: '#22c55e', borderRadius: '2px', opacity: 0.7 }} />
