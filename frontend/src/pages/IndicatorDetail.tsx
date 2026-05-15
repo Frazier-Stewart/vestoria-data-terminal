@@ -152,7 +152,19 @@ export default function IndicatorDetail() {
   const fetchIndicator = async (indicatorId: number) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}`);
-      setIndicator(response.data);
+      const indicatorData = response.data;
+
+      // Fetch config for MA200 indicators
+      if (indicatorData.template?.id === 'MA200') {
+        try {
+          const configResponse = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/config`);
+          indicatorData.config = configResponse.data;
+        } catch (configError) {
+          console.error('Failed to fetch indicator config:', configError);
+        }
+      }
+
+      setIndicator(indicatorData);
     } catch (error) {
       console.error('Failed to fetch indicator:', error);
     } finally {

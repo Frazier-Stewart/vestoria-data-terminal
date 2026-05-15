@@ -9,6 +9,8 @@ from app.core.database import get_db
 from app.models.indicator import IndicatorTemplate, Indicator, IndicatorValue
 from app.models.asset import Asset
 from app.models.price_data import PriceData
+from app.models.admin import Admin
+from app.api.v1.auth import get_current_admin
 from app.schemas.indicator import (
     IndicatorTemplateCreate, IndicatorTemplateUpdate, IndicatorTemplateResponse,
     IndicatorCreate, IndicatorUpdate, IndicatorResponse,
@@ -138,34 +140,34 @@ def list_indicators(
     return query.order_by(IndicatorTemplate.category, Indicator.template_id, Indicator.id).offset(skip).limit(limit).all()
 
 
-@router.get("/{indicator_id}")
+@router.get("/{indicator_id}", response_model=IndicatorResponse)
 def get_indicator(indicator_id: int, db: Session = Depends(get_db)):
     """Get indicator instance by ID."""
     indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
+    return indicator
 
-    # Build response with config for MA200 indicators
-    response = {
-        "id": indicator.id,
-        "name": indicator.name,
-        "params": indicator.params,
-        "is_active": indicator.is_active,
-        "last_calculated_at": indicator.last_calculated_at,
-        "created_at": indicator.created_at,
-        "updated_at": indicator.updated_at,
-        "template": indicator.template,
-        "asset_id": indicator.asset_id,
-    }
 
-    # Add multiplier config for MA200 indicators
+@router.get("/{indicator_id}/config")
+def get_indicator_config(
+    indicator_id: int,
+    db: Session = Depends(get_db),
+    current_admin: Admin = Depends(get_current_admin)
+):
+    """Get indicator-specific configuration (e.g., MA200 multipliers)."""
+    indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not indicator:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+
+    # Return config for MA200 indicators
     if indicator.template and indicator.template.id == "MA200":
         from app.indicators.ma200 import MA200Indicator
         config = MA200Indicator.multiplier_config
         asset_id = indicator.asset_id
-        response["config"] = config.get(asset_id, config.get("default"))
+        return config.get(asset_id, config.get("default"))
 
-    return response
+    return {}
 
 
 @router.put("/{indicator_id}", response_model=IndicatorResponse)
