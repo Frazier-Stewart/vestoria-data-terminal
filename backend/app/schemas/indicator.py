@@ -74,6 +74,7 @@ class IndicatorResponse(IndicatorBase):
     created_at: datetime
     updated_at: datetime
     template: Optional[IndicatorTemplateResponse] = None
+    config: Optional[Dict[str, Any]] = None  # Asset-specific config (e.g., MA200 multipliers)
 
     class Config:
         from_attributes = True

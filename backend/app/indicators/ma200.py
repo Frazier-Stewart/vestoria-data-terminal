@@ -33,10 +33,26 @@ class MA200Indicator(BaseIndicatorProcessor):
         "period": 200,
         "price_field": "close"
     }
-    
+
     param_descriptions = {
         "period": "均线周期（周数）",
         "price_field": "使用的价格字段 (open/high/low/close)"
+    }
+
+    # 不同资产的MA200W估值倍数配置
+    # 用于前端绘制价格图表时的参考线
+    multiplier_config = {
+        "default": {
+            "multipliers": [1.0, 1.5, 2.0, 2.5, 3.0],
+            "labels": ["极度低估", "低估", "合理估值", "高估", "极度高估"],
+            "colors": ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"],
+        },
+        "^GSPC": {
+            "multipliers": [1.0, 1.1, 1.2, 1.3, 1.4],
+            "labels": ["极度低估", "低估", "合理估值", "高估", "极度高估"],
+            "colors": ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"],
+        },
+        # 可以添加更多资产的配置
     }
     
     output_fields = [

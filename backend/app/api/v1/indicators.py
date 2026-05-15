@@ -138,13 +138,34 @@ def list_indicators(
     return query.order_by(IndicatorTemplate.category, Indicator.template_id, Indicator.id).offset(skip).limit(limit).all()
 
 
-@router.get("/{indicator_id}", response_model=IndicatorResponse)
+@router.get("/{indicator_id}")
 def get_indicator(indicator_id: int, db: Session = Depends(get_db)):
     """Get indicator instance by ID."""
     indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
-    return indicator
+
+    # Build response with config for MA200 indicators
+    response = {
+        "id": indicator.id,
+        "name": indicator.name,
+        "params": indicator.params,
+        "is_active": indicator.is_active,
+        "last_calculated_at": indicator.last_calculated_at,
+        "created_at": indicator.created_at,
+        "updated_at": indicator.updated_at,
+        "template": indicator.template,
+        "asset_id": indicator.asset_id,
+    }
+
+    # Add multiplier config for MA200 indicators
+    if indicator.template and indicator.template.id == "MA200":
+        from app.indicators.ma200 import MA200Indicator
+        config = MA200Indicator.multiplier_config
+        asset_id = indicator.asset_id
+        response["config"] = config.get(asset_id, config.get("default"))
+
+    return response
 
 
 @router.put("/{indicator_id}", response_model=IndicatorResponse)

@@ -17,6 +17,11 @@ interface Indicator {
     id: string;
     indicator_type: string;
   };
+  config?: {
+    multipliers: number[];
+    labels: string[];
+    colors: string[];
+  };
 }
 
 interface IndicatorValue {
@@ -424,82 +429,48 @@ export default function IndicatorDetail() {
       }));
     maSeries.setData(maData);
 
-    // MA200W multiplier lines (1.5x, 2x, 2.5x, 3x) - solid lines, hide last value labels
-    const ma15xSeries = chart.addSeries(LineSeries, {
-      color: '#22c55e',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-    });
-    ma15xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 1.5 })));
+    // Get multiplier config from indicator or use default
+    const maConfig = indicator?.config;
+    const multipliers = maConfig?.multipliers || [1.0, 1.5, 2.0, 2.5, 3.0];
+    const labels = maConfig?.labels || ["极度低估", "低估", "合理估值", "高估", "极度高估"];
+    const maColors = maConfig?.colors || ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"];
 
-    const ma2xSeries = chart.addSeries(LineSeries, {
-      color: '#eab308',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-    });
-    ma2xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2 })));
-
-    const ma25xSeries = chart.addSeries(LineSeries, {
-      color: '#f97316',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-    });
-    ma25xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 2.5 })));
-
-    const ma3xSeries = chart.addSeries(LineSeries, {
-      color: '#dc2626',
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-    });
-    ma3xSeries.setData(maData.map(d => ({ time: d.time, value: d.value * 3 })));
+    // Create multiplier series dynamically
+    const multiplierSeries: Array<ReturnType<typeof chart.addSeries>> = [];
+    for (let i = 1; i < multipliers.length; i++) {
+      const series = chart.addSeries(LineSeries, {
+        color: maColors[i],
+        lineWidth: 2,
+        lastValueVisible: false,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      series.setData(maData.map(d => ({ time: d.time, value: d.value * multipliers[i] })));
+      multiplierSeries.push(series);
+    }
 
     // Price lines for reference levels with valuation labels
     const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
     if (latestMA != null) {
+      // MA base line (1x)
       maSeries.createPriceLine({
         price: latestMA,
-        color: '#3b82f6',
+        color: maColors[0],
         lineWidth: 1,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: '极度低估',
+        title: labels[0],
       });
-      ma15xSeries.createPriceLine({
-        price: latestMA * 1.5,
-        color: '#22c55e',
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: '低估',
-      });
-      ma2xSeries.createPriceLine({
-        price: latestMA * 2,
-        color: '#eab308',
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: '合理估值',
-      });
-      ma25xSeries.createPriceLine({
-        price: latestMA * 2.5,
-        color: '#f97316',
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: '高估',
-      });
-      ma3xSeries.createPriceLine({
-        price: latestMA * 3,
-        color: '#dc2626',
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: '极度高估',
-      });
+      // Multiplier lines
+      for (let i = 0; i < multiplierSeries.length; i++) {
+        multiplierSeries[i].createPriceLine({
+          price: latestMA * multipliers[i + 1],
+          color: maColors[i + 1],
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: labels[i + 1],
+        });
+      }
     }
 
     chart.timeScale().fitContent();
@@ -877,27 +848,26 @@ export default function IndicatorDetail() {
               ))}
             </div>
           </div>
+          {/* Dynamic legend based on config */}
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '3px', background: '#3b82f6', borderRadius: '2px' }} />
-              MA200W
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '3px', background: '#22c55e', borderRadius: '2px' }} />
-              1.5×
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '3px', background: '#eab308', borderRadius: '2px' }} />
-              2×
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '3px', background: '#f97316', borderRadius: '2px' }} />
-              2.5×
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <span style={{ width: '20px', height: '3px', background: '#dc2626', borderRadius: '2px' }} />
-              3×
-            </span>
+            {(indicator?.config ? [
+              { label: 'MA200W', color: indicator.config.colors?.[0] || '#3b82f6' },
+              ...indicator.config.multipliers.slice(1).map((m, i) => ({
+                label: `${m}×`,
+                color: indicator.config.colors?.[i + 1] || '#64748b'
+              }))
+            ] : [
+              { label: 'MA200W', color: '#3b82f6' },
+              { label: '1.5×', color: '#22c55e' },
+              { label: '2×', color: '#eab308' },
+              { label: '2.5×', color: '#f97316' },
+              { label: '3×', color: '#dc2626' },
+            ]).map((item, i) => (
+              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '20px', height: '3px', background: item.color, borderRadius: '2px' }} />
+                {item.label}
+              </span>
+            ))}
             <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <span style={{ width: '12px', height: '12px', background: '#22c55e', borderRadius: '2px', opacity: 0.7 }} />
               <span style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }} />
