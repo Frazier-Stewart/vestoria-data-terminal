@@ -47,3 +47,6 @@ frontend/*.tsbuildinfo
 # Environment files
 .env
 .env.*
+
+# Lock files (for reproducible builds)
+!backend/uv.lock
