@@ -9,7 +9,7 @@
 ```bash
 cd /path/to/data-terminal/backend
 source .venv/bin/activate
-python data_explore/<script>.py
+python db_scripts/<script>.py
 ```
 
 ## 脚本说明
@@ -19,7 +19,7 @@ python data_explore/<script>.py
 列出所有 11 个 GICS 板块及其基本信息。
 
 ```bash
-python data_explore/list_sectors.py
+python db_scripts/list_sectors.py
 ```
 
 **输出示例：**
@@ -39,12 +39,12 @@ python data_explore/list_sectors.py
 列出指定板块下的所有子行业及其龙头公司。
 
 ```bash
-python data_explore/list_industries.py <sector_key>
+python db_scripts/list_industries.py <sector_key>
 
 # 示例
-python data_explore/list_industries.py technology
-python data_explore/list_industries.py healthcare
-python data_explore/list_industries.py financial-services
+python db_scripts/list_industries.py technology
+python db_scripts/list_industries.py healthcare
+python db_scripts/list_industries.py financial-services
 ```
 
 **可用的板块：**
@@ -65,11 +65,11 @@ python data_explore/list_industries.py financial-services
 按市值筛选指定板块的股票。
 
 ```bash
-python data_explore/screen_sector.py <sector_key> [count]
+python db_scripts/screen_sector.py <sector_key> [count]
 
 # 示例
-python data_explore/screen_sector.py technology 15
-python data_explore/screen_sector.py healthcare 20
+python db_scripts/screen_sector.py technology 15
+python db_scripts/screen_sector.py healthcare 20
 ```
 
 **输出示例：**
@@ -91,12 +91,12 @@ python data_explore/screen_sector.py healthcare 20
 使用 yfinance 内置的预定义筛选器。
 
 ```bash
-python data_explore/screen_predefined.py <screener_name> [count]
+python db_scripts/screen_predefined.py <screener_name> [count]
 
 # 示例
-python data_explore/screen_predefined.py growth_technology_stocks 20
-python data_explore/screen_predefined.py most_actives 15
-python data_explore/screen_predefined.py day_gainers 10
+python db_scripts/screen_predefined.py growth_technology_stocks 20
+python db_scripts/screen_predefined.py most_actives 15
+python db_scripts/screen_predefined.py day_gainers 10
 ```
 
 **可用的筛选器：**

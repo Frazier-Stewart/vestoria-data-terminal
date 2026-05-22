@@ -10,8 +10,8 @@ def init_indicator_templates(db: Session):
     templates = [
         {
             "id": "MA200",
-            "name": "200日均线偏离度",
-            "description": "计算价格相对于200日均线的偏离百分比，用于判断中长期趋势和估值水平",
+            "name": "200周均线偏离度",
+            "description": "计算价格相对于200周均线的偏离百分比，用于判断超长期趋势和估值水平（过滤短期噪音）",
             "indicator_type": "metric",
             "category": "trend",
             "processor_class": "MA200",
@@ -24,7 +24,7 @@ def init_indicator_templates(db: Session):
                 {"name": "value_text", "type": "string", "description": "文本描述", "optional": True},
                 {"name": "grade", "type": "string", "description": "档位", "optional": True},
                 {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
-                {"name": "ma_value", "type": "float", "description": "200日均线值", "optional": True},
+                {"name": "ma_value", "type": "float", "description": "200周均线值", "optional": True},
                 {"name": "current_price", "type": "float", "description": "当前价格", "optional": True},
             ],
             "grading_config": {
@@ -68,8 +68,35 @@ def init_indicator_templates(db: Session):
             "is_active": True,
         },
         {
+            "id": "CNN_FEAR_GREED",
+            "name": "美股恐慌贪婪指数CNN",
+            "description": "CNN Fear & Greed Index，基于美股市场综合情绪指标。数据源：github.com/whit3rabbit/fear-greed-data",
+            "indicator_type": "sentiment",
+            "category": "sentiment",
+            "processor_class": "CNN_FEAR_GREED",
+            "default_params": {
+                "csv_url": "https://raw.githubusercontent.com/whit3rabbit/fear-greed-data/main/fear-greed.csv"
+            },
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "指数值 (0-100)"},
+                {"name": "value_text", "type": "string", "description": "情绪描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "extreme_fear", "min": 0, "max": 25, "label": "极度恐惧"},
+                    {"grade": "fear", "min": 25, "max": 45, "label": "恐惧"},
+                    {"grade": "neutral", "min": 45, "max": 56, "label": "中性"},
+                    {"grade": "greed", "min": 56, "max": 75, "label": "贪婪"},
+                    {"grade": "extreme_greed", "min": 75, "max": 100, "label": "极度贪婪"},
+                ]
+            },
+            "is_active": True,
+        },
+        {
             "id": "VIX",
-            "name": "VIX波动率指数",
+            "name": "标普500波动率指数VIX",
             "description": "CBOE Volatility Index，市场恐慌指数",
             "indicator_type": "volatility",
             "category": "volatility",
@@ -93,6 +120,111 @@ def init_indicator_templates(db: Session):
                     {"grade": "elevated", "min": 25, "max": 30, "label": "波动加剧"},
                     {"grade": "fear", "min": 30, "max": 40, "label": "市场恐慌"},
                     {"grade": "panic", "min": 40, "max": float('inf'), "label": "极度恐慌"},
+                ]
+            },
+            "is_active": True,
+        },
+        {
+            "id": "VXN",
+            "name": "纳斯达克波动率指数VXN",
+            "description": "CBOE Nasdaq-100 Volatility Index，科技股恐慌指数",
+            "indicator_type": "volatility",
+            "category": "volatility",
+            "processor_class": "VXN",
+            "default_params": {"symbol": "^VXN", "threshold_low": 20, "threshold_high": 30},
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "VXN值"},
+                {"name": "value_text", "type": "string", "description": "市场状态描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "calm", "min": 0, "max": 15, "label": "极度平静"},
+                    {"grade": "low", "min": 15, "max": 20, "label": "低波动"},
+                    {"grade": "normal", "min": 20, "max": 25, "label": "正常波动"},
+                    {"grade": "elevated", "min": 25, "max": 30, "label": "波动加剧"},
+                    {"grade": "fear", "min": 30, "max": 40, "label": "市场恐慌"},
+                    {"grade": "panic", "min": 40, "max": float('inf'), "label": "极度恐慌"},
+                ]
+            },
+            "is_active": True,
+        },
+        {
+            "id": "VXD",
+            "name": "道琼斯波动率指数VXD",
+            "description": "CBOE DJIA Volatility Index，道指恐慌指数",
+            "indicator_type": "volatility",
+            "category": "volatility",
+            "processor_class": "VXD",
+            "default_params": {"symbol": "^VXD", "threshold_low": 18, "threshold_high": 28},
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "VXD值"},
+                {"name": "value_text", "type": "string", "description": "市场状态描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "calm", "min": 0, "max": 15, "label": "极度平静"},
+                    {"grade": "low", "min": 15, "max": 18, "label": "低波动"},
+                    {"grade": "normal", "min": 18, "max": 22, "label": "正常波动"},
+                    {"grade": "elevated", "min": 22, "max": 28, "label": "波动加剧"},
+                    {"grade": "fear", "min": 28, "max": 38, "label": "市场恐慌"},
+                    {"grade": "panic", "min": 38, "max": float('inf'), "label": "极度恐慌"},
+                ]
+            },
+            "is_active": True,
+        },
+
+        {
+            "id": "OVX",
+            "name": "原油波动率指数OVX",
+            "description": "CBOE Crude Oil Volatility Index，原油恐慌指数",
+            "indicator_type": "volatility",
+            "category": "volatility",
+            "processor_class": "OVX",
+            "default_params": {"symbol": "^OVX", "threshold_low": 35, "threshold_high": 50},
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "OVX值"},
+                {"name": "value_text", "type": "string", "description": "市场状态描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "calm", "min": 0, "max": 25, "label": "极度平静"},
+                    {"grade": "low", "min": 25, "max": 35, "label": "低波动"},
+                    {"grade": "normal", "min": 35, "max": 45, "label": "正常波动"},
+                    {"grade": "elevated", "min": 45, "max": 55, "label": "波动加剧"},
+                    {"grade": "fear", "min": 55, "max": 75, "label": "市场恐慌"},
+                    {"grade": "panic", "min": 75, "max": float('inf'), "label": "极度恐慌"},
+                ]
+            },
+            "is_active": True,
+        },
+        {
+            "id": "GVZ",
+            "name": "黄金波动率指数GVZ",
+            "description": "CBOE Gold Volatility Index，黄金恐慌指数",
+            "indicator_type": "volatility",
+            "category": "volatility",
+            "processor_class": "GVZ",
+            "default_params": {"symbol": "^GVZ", "threshold_low": 15, "threshold_high": 20},
+            "output_fields": [
+                {"name": "value", "type": "float", "description": "GVZ值"},
+                {"name": "value_text", "type": "string", "description": "市场状态描述"},
+                {"name": "grade", "type": "string", "description": "档位", "optional": True},
+                {"name": "grade_label", "type": "string", "description": "档位标签", "optional": True},
+            ],
+            "grading_config": {
+                "grades": [
+                    {"grade": "calm", "min": 0, "max": 12, "label": "极度平静"},
+                    {"grade": "low", "min": 12, "max": 15, "label": "低波动"},
+                    {"grade": "normal", "min": 15, "max": 18, "label": "正常波动"},
+                    {"grade": "elevated", "min": 18, "max": 22, "label": "波动加剧"},
+                    {"grade": "fear", "min": 22, "max": 28, "label": "市场恐慌"},
+                    {"grade": "panic", "min": 28, "max": float('inf'), "label": "极度恐慌"},
                 ]
             },
             "is_active": True,

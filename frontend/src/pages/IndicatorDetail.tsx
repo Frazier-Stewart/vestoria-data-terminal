@@ -1,8 +1,8 @@
 import { useParams, Link } from 'react-router-dom';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { createChart, AreaSeries, ColorType } from 'lightweight-charts';
-import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database } from 'lucide-react';
+import { createChart, AreaSeries, LineSeries, CandlestickSeries, ColorType, PriceScaleMode } from 'lightweight-charts';
+import { ArrowLeft, Activity, AlertCircle, TrendingUp, Gauge, Database, Loader2, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '';
@@ -16,6 +16,11 @@ interface Indicator {
   template?: {
     id: string;
     indicator_type: string;
+  };
+  config?: {
+    multipliers: number[];
+    labels: string[];
+    colors: string[];
   };
 }
 
@@ -32,12 +37,39 @@ interface IndicatorValue {
   };
 }
 
+interface PriceChartData {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume?: number;
+  ma_value?: number;
+}
+
+interface PriceDataCheck {
+  asset_id: string;
+  total_records: number;
+  earliest_date?: string;
+  latest_date?: string;
+  has_enough_data: boolean;
+  days_coverage: number;
+  max_continuous_days: number;
+  max_continuous_start?: string;
+  max_continuous_end?: string;
+  gaps: Array<{ start_date: string; end_date: string; days: number }>;
+  needs_backfill: boolean;
+  message: string;
+}
+
+type TimeRange = '1M' | '3M' | '6M' | '1Y' | 'ALL';
+
 const typeConfig: Record<string, { label: string; color: string; bg: string; icon: React.ElementType }> = {
   fear_greed: { label: '恐慌贪婪', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
   vix: { label: 'VIX', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
   ma200: { label: 'MA200', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   pe: { label: '市盈率', color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', icon: Activity },
-  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: Database },
+  metric: { label: '技术指标', color: '#3b82f6', bg: 'rgba(59, 130, 246, 0.1)', icon: TrendingUp },
   sentiment: { label: '情绪指标', color: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.1)', icon: AlertCircle },
   volatility: { label: '波动率', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', icon: Gauge },
 };
@@ -75,28 +107,64 @@ function getChartColors() {
   };
 }
 
+const timeButtons: { key: TimeRange; label: string }[] = [
+  { key: '1M', label: '1月' },
+  { key: '3M', label: '3月' },
+  { key: '6M', label: '6月' },
+  { key: '1Y', label: '1年' },
+  { key: 'ALL', label: '全部' },
+];
+
 export default function IndicatorDetail() {
   const { id } = useParams<{ id: string }>();
   const [indicator, setIndicator] = useState<Indicator | null>(null);
-  const [values, setValues] = useState<IndicatorValue[]>([]);
+  const [allValues, setAllValues] = useState<IndicatorValue[]>([]);
+  const [timeRange, setTimeRange] = useState<TimeRange>('ALL');
   const [loading, setLoading] = useState(true);
   const [chartContainer, setChartContainer] = useState<HTMLDivElement | null>(null);
+  const [priceChartContainer, setPriceChartContainer] = useState<HTMLDivElement | null>(null);
+  const [recalculating, setRecalculating] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [priceCheck, setPriceCheck] = useState<PriceDataCheck | null>(null);
+  const [priceChartData, setPriceChartData] = useState<PriceChartData[]>([]);
+  const [showBackfillModal, setShowBackfillModal] = useState(false);
+  const [backfillStart, setBackfillStart] = useState('');
+  const [backfillEnd, setBackfillEnd] = useState('');
+  const [isLogScale, setIsLogScale] = useState(false);
+  const [isPriceLogScale, setIsPriceLogScale] = useState(false);
 
   const chartContainerRef = useCallback((node: HTMLDivElement | null) => {
     setChartContainer(node);
+  }, []);
+  const priceChartContainerRef = useCallback((node: HTMLDivElement | null) => {
+    setPriceChartContainer(node);
   }, []);
 
   useEffect(() => {
     if (id) {
       fetchIndicator(parseInt(id));
       fetchValues(parseInt(id));
+      fetchPriceDataCheck(parseInt(id));
+      fetchPriceChartData(parseInt(id));
     }
   }, [id]);
 
   const fetchIndicator = async (indicatorId: number) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}`);
-      setIndicator(response.data);
+      const indicatorData = response.data;
+
+      // Fetch config for MA200 indicators
+      if (indicatorData.template?.id === 'MA200') {
+        try {
+          const configResponse = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/config`);
+          indicatorData.config = configResponse.data;
+        } catch (configError) {
+          console.error('Failed to fetch indicator config:', configError);
+        }
+      }
+
+      setIndicator(indicatorData);
     } catch (error) {
       console.error('Failed to fetch indicator:', error);
     } finally {
@@ -106,17 +174,119 @@ export default function IndicatorDetail() {
 
   const fetchValues = async (indicatorId: number) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/values?limit=500`);
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/values?limit=5000`);
       const sorted = response.data.sort((a: IndicatorValue, b: IndicatorValue) =>
         new Date(a.date).getTime() - new Date(b.date).getTime()
       );
-      setValues(sorted);
+      setAllValues(sorted);
     } catch (error) {
       console.error('Failed to fetch values:', error);
     }
   };
 
+  const fetchPriceChartData = async (indicatorId: number) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/price-chart-data`);
+      setPriceChartData(response.data);
+    } catch (error) {
+      console.error('Failed to fetch price chart data:', error);
+    }
+  };
+
+  const fetchPriceDataCheck = async (indicatorId: number) => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/v1/indicators/${indicatorId}/price-data-check`);
+      setPriceCheck(response.data);
+      // Auto-set backfill dates if needed
+      if (response.data.needs_backfill && response.data.latest_date) {
+        const latest = dayjs(response.data.latest_date);
+        const sixYearsAgo = dayjs().subtract(6, 'year');
+        setBackfillStart(sixYearsAgo.format('YYYY-MM-DD'));
+        setBackfillEnd(latest.format('YYYY-MM-DD'));
+      }
+    } catch (error) {
+      console.error('Failed to check price data:', error);
+    }
+  };
+
+  const handleRecalculate = async () => {
+    if (!id) return;
+    setRecalculating(true);
+    try {
+      // Use earliest price data date for full calculation
+      let startDate: string;
+      if (priceCheck?.earliest_date) {
+        startDate = priceCheck.earliest_date;
+      } else {
+        startDate = dayjs().subtract(6, 'year').format('YYYY-MM-DD');
+      }
+      const today = dayjs().format('YYYY-MM-DD');
+      await axios.post(`${API_BASE_URL}/api/v1/indicators/${id}/recalculate`, {
+        start: startDate,
+        end: today,
+      });
+      await fetchValues(parseInt(id));
+      await fetchPriceChartData(parseInt(id));
+    } catch (error) {
+      console.error('Failed to recalculate:', error);
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`重新计算失败: ${error.response.data.detail}`);
+      } else {
+        alert('重新计算失败，请检查价格数据是否充足');
+      }
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  const handleBackfillPrices = async () => {
+    if (!indicator?.asset_id || !backfillStart || !backfillEnd) return;
+    setBackfilling(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/v1/prices/backfill-range?asset_id=${indicator.asset_id}`,
+        {
+          start_date: backfillStart,
+          end_date: backfillEnd,
+        }
+      );
+      setShowBackfillModal(false);
+      alert(`数据增补完成！共获取 ${response.data.days_filled} 天数据`);
+      await fetchPriceDataCheck(parseInt(id!));
+    } catch (error) {
+      console.error('Failed to backfill:', error);
+      if (axios.isAxiosError(error) && error.response?.data?.detail) {
+        alert(`增补数据失败: ${error.response.data.detail}`);
+      } else {
+        alert('增补数据失败，请重试');
+      }
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+  const filteredValues = useMemo(() => {
+    if (timeRange === 'ALL') return allValues;
+    const now = dayjs();
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const cutoff = now.subtract(ranges[timeRange], 'day');
+    return allValues.filter(v => dayjs(v.date).isAfter(cutoff));
+  }, [allValues, timeRange]);
+
+  const filteredPriceChartData = useMemo(() => {
+    if (timeRange === 'ALL') return priceChartData;
+    const now = dayjs();
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const cutoff = now.subtract(ranges[timeRange], 'day');
+    return priceChartData.filter(d => dayjs(d.date).isAfter(cutoff));
+  }, [priceChartData, timeRange]);
+
   const isFearGreed = indicator?.template?.indicator_type === 'fear_greed' || indicator?.template?.id === 'BTC_FEAR_GREED';
+  const isMA200 = indicator?.template?.id === 'MA200';
 
   const indicatorColor = useMemo(() => {
     if (!indicator) return '#6366f1';
@@ -124,9 +294,9 @@ export default function IndicatorDetail() {
     return config.color;
   }, [indicator]);
 
-  // Single effect: create chart + set data
+  // Chart effect
   useEffect(() => {
-    if (!chartContainer || values.length === 0) return;
+    if (!chartContainer || filteredValues.length === 0) return;
 
     const colors = getChartColors();
 
@@ -141,13 +311,14 @@ export default function IndicatorDetail() {
         horzLines: { color: colors.gridColor },
       },
       width: chartContainer.clientWidth,
-      height: 350,
+      height: 525,
       crosshair: {
         vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
         horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
       },
       rightPriceScale: {
         borderColor: colors.borderColor,
+        mode: isLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
       },
       timeScale: {
         borderColor: colors.borderColor,
@@ -169,14 +340,13 @@ export default function IndicatorDetail() {
       },
     });
 
-    const chartData = values.map(v => ({
+    const chartData = filteredValues.map(v => ({
       time: v.date as string,
       value: v.value,
     }));
 
     series.setData(chartData);
 
-    // Reference lines for Fear & Greed
     if (isFearGreed) {
       series.createPriceLine({ price: 20, color: 'rgba(220, 38, 38, 0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '极度恐慌' });
       series.createPriceLine({ price: 50, color: 'rgba(100, 116, 139, 0.4)', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '中性' });
@@ -194,12 +364,124 @@ export default function IndicatorDetail() {
       window.removeEventListener('resize', handleResize);
       chart.remove();
     };
-  }, [chartContainer, values, indicatorColor, isFearGreed]);
+  }, [chartContainer, filteredValues, indicatorColor, isFearGreed, isLogScale]);
+
+  // Price + MA200W chart effect (only for MA200 indicators)
+  useEffect(() => {
+    if (!isMA200 || !priceChartContainer || priceChartData.length === 0) return;
+
+    const colors = getChartColors();
+
+    const chart = createChart(priceChartContainer, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: colors.textColor,
+        fontFamily: "'Inter', -apple-system, sans-serif",
+      },
+      grid: {
+        vertLines: { color: colors.gridColor },
+        horzLines: { color: colors.gridColor },
+      },
+      width: priceChartContainer.clientWidth,
+      height: 525,
+      crosshair: {
+        vertLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+        horzLine: { color: colors.crosshairColor, width: 1, style: 3, labelBackgroundColor: '#6366f1' },
+      },
+      rightPriceScale: {
+        borderColor: colors.borderColor,
+        mode: isPriceLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+      },
+      timeScale: {
+        borderColor: colors.borderColor,
+        timeVisible: false,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+    });
+
+    // Candlestick (OHLC) - hide last value label
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderUpColor: '#22c55e',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
+      lastValueVisible: false,
+    });
+    candleSeries.setData(
+      filteredPriceChartData
+        .filter(d => d.open != null && d.high != null && d.low != null && d.close != null)
+        .map(d => ({
+          time: d.date,
+          open: d.open,
+          high: d.high,
+          low: d.low,
+          close: d.close,
+        }))
+    );
+
+    // Get multiplier config from indicator or use default
+    const maConfig = indicator?.config;
+    const multipliers = maConfig?.multipliers || [1.0, 1.5, 2.0, 2.5, 3.0];
+    const labels = maConfig?.labels || ["极度低估", "低估", "合理估值", "高估", "极度高估"];
+    const maColors = maConfig?.colors || ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"];
+
+    // Build MA data
+    const maData = filteredPriceChartData
+      .filter(d => d.ma_value != null)
+      .map(d => ({
+        time: d.date,
+        value: d.ma_value!,
+      }));
+
+    // Create series for all multipliers (including 1x/MA200W)
+    const multiplierSeries: Array<{ series: ReturnType<typeof chart.addSeries>, multiplier: number, label: string, color: string }> = [];
+    for (let i = 0; i < multipliers.length; i++) {
+      const series = chart.addSeries(LineSeries, {
+        color: maColors[i],
+        lineWidth: 2,
+        lastValueVisible: false,
+        priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+      });
+      series.setData(maData.map(d => ({ time: d.time, value: d.value * multipliers[i] })));
+      multiplierSeries.push({ series, multiplier: multipliers[i], label: labels[i], color: maColors[i] });
+    }
+
+    // Price lines for reference levels - show price only, no labels
+    const latestMA = maData.length > 0 ? maData[maData.length - 1].value : null;
+    if (latestMA != null) {
+      // All multiplier lines including 1x (MA200W)
+      for (const item of multiplierSeries) {
+        item.series.createPriceLine({
+          price: latestMA * item.multiplier,
+          color: item.color,
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: '',
+        });
+      }
+    }
+
+    chart.timeScale().fitContent();
+
+    const handleResize = () => {
+      chart.applyOptions({ width: priceChartContainer.clientWidth });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [priceChartContainer, filteredPriceChartData, isMA200, isPriceLogScale]);
 
   const stats = useMemo(() => {
-    if (values.length === 0) return null;
-    const latest = values[values.length - 1];
-    const allValues = values.map(v => v.value);
+    if (filteredValues.length === 0) return null;
+    const latest = filteredValues[filteredValues.length - 1];
+    const allValues = filteredValues.map(v => v.value);
     const max = Math.max(...allValues);
     const min = Math.min(...allValues);
     const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
@@ -211,9 +493,76 @@ export default function IndicatorDetail() {
       max,
       min,
       avg: avg.toFixed(2),
-      count: values.length,
+      count: filteredValues.length,
     };
-  }, [values]);
+  }, [filteredValues]);
+
+  // MA200区间天数统计（使用历史MA值，不是最新的）
+  const ma200Stats = useMemo(() => {
+    if (!isMA200 || priceChartData.length === 0) return null;
+
+    const maConfig = indicator?.config;
+    const multipliers = maConfig?.multipliers || [1.0, 1.5, 2.0, 2.5, 3.0];
+    const labels = maConfig?.labels || ["极度低估", "低估", "合理估值", "高估", "极度高估"];
+    const colors = maConfig?.colors || ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#dc2626"];
+
+    // 按时间范围过滤数据（使用与图表相同的逻辑）
+    const ranges: Record<TimeRange, number> = {
+      '1M': 30, '3M': 90, '6M': 180, '1Y': 365, 'ALL': 99999,
+    };
+    const filteredData = timeRange === 'ALL'
+      ? priceChartData
+      : priceChartData.filter(d => dayjs(d.date).isAfter(dayjs().subtract(ranges[timeRange], 'day')));
+
+    // 计算每个数据点的 price/ma 比率
+    const ratios = filteredData
+      .filter(d => d.ma_value && d.ma_value > 0)
+      .map(d => ({
+        date: d.date,
+        ratio: d.close / d.ma_value,
+      }));
+
+    // 统计各区间的天数
+    const sortedMultipliers = [...multipliers].sort((a, b) => a - b);
+    const intervals: Array<{
+      min: number;
+      max: number;
+      label: string;
+      color: string;
+      count: number;
+    }> = [];
+
+    for (let i = 0; i < sortedMultipliers.length; i++) {
+      const min = i === 0 ? 0 : sortedMultipliers[i - 1];
+      const max = sortedMultipliers[i];
+      const originalIndex = multipliers.indexOf(sortedMultipliers[i]);
+      intervals.push({
+        min,
+        max,
+        label: labels[originalIndex] || `≤${max}x`,
+        color: colors[originalIndex] || '#64748b',
+        count: ratios.filter(r => r.ratio > min && r.ratio <= max).length,
+      });
+    }
+
+    // 添加最高区间 (>最大multiplier)
+    const maxMultiplier = sortedMultipliers[sortedMultipliers.length - 1];
+    intervals.push({
+      min: maxMultiplier,
+      max: Infinity,
+      label: `>${maxMultiplier}x`,
+      color: '#64748b',
+      count: ratios.filter(r => r.ratio > maxMultiplier).length,
+    });
+
+    const totalDays = ratios.length;
+
+    return {
+      intervals,
+      totalDays,
+      validDataCount: ratios.length,
+    };
+  }, [isMA200, priceChartData, indicator?.config, timeRange]);
 
   if (loading) {
     return (
@@ -257,7 +606,7 @@ export default function IndicatorDetail() {
           返回指标列表
         </Link>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '8px' }}>
               <div
@@ -285,7 +634,7 @@ export default function IndicatorDetail() {
             </div>
           </div>
 
-          {stats && (
+          {stats && !isMA200 && (
             <div style={{ textAlign: 'right' }}>
               <div style={{ fontSize: '36px', fontWeight: 700, color: 'var(--text-primary)' }}>
                 {stats.latest.toFixed(1)}
@@ -304,8 +653,85 @@ export default function IndicatorDetail() {
         </div>
       </div>
 
+      {/* Data insufficient warning */}
+      {priceCheck?.needs_backfill && indicator.asset_id && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: 0 }}>
+            <AlertTriangle size={20} color="#ef4444" />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: '#ef4444', fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                价格数据不足6年
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                {priceCheck.gaps && priceCheck.gaps.length > 0 ? (
+                  <>
+                    总覆盖 {priceCheck.days_coverage} 天，但最大连续区间仅 {priceCheck.max_continuous_days} 天
+                    （约 {(priceCheck.max_continuous_days / 365).toFixed(1)} 年），存在 {priceCheck.gaps.length} 处数据断档。
+                    200周均线需要至少6年连续数据。
+                  </>
+                ) : (
+                  <>
+                    当前仅 {priceCheck.max_continuous_days} 天（约 {(priceCheck.max_continuous_days / 365).toFixed(1)} 年），200周均线需要至少6年数据
+                  </>
+                )}
+              </div>
+              {priceCheck.gaps && priceCheck.gaps.length > 0 && (
+                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  断档：
+                  {priceCheck.gaps.slice(0, 3).map((g, i) => (
+                    <span key={i} style={{ marginRight: '12px' }}>
+                      {g.start_date} ~ {g.end_date}（缺 {g.days} 天）
+                    </span>
+                  ))}
+                  {priceCheck.gaps.length > 3 && `等共 ${priceCheck.gaps.length} 处`}
+                </div>
+              )}
+            </div>
+          </div>
+          <button
+            onClick={() => setShowBackfillModal(true)}
+            disabled={backfilling}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              borderRadius: '8px',
+              border: 'none',
+              background: '#ef4444',
+              color: 'white',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: backfilling ? 'not-allowed' : 'pointer',
+              opacity: backfilling ? 0.7 : 1,
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {backfilling ? (
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+            ) : (
+              <>
+                <Plus size={16} />
+                补充数据
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Stats Cards */}
-      {stats && (
+      {stats && !isMA200 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '24px' }}>
           {[
             { label: '最大值', value: stats.max.toFixed(1), color: '#22c55e' },
@@ -321,67 +747,406 @@ export default function IndicatorDetail() {
         </div>
       )}
 
-      {/* Chart */}
-      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
-          历史走势
-        </h3>
-
-        <div style={{ position: 'relative', width: '100%', height: '350px' }}>
-          <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
-          {values.length === 0 && (
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
-              暂无历史数据
+      {/* Chart - only for non-MA200 indicators */}
+      {!isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              历史走势
+            </h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setIsLogScale(!isLogScale)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: isLogScale ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                  color: isLogScale ? 'white' : 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {isLogScale ? '对数' : '线性'}
+              </button>
+              <button
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: recalculating ? 'not-allowed' : 'pointer',
+                  opacity: recalculating ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {recalculating ? (
+                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                重新计算
+              </button>
+              {timeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  onClick={() => setTimeRange(btn.key)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                    color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
+
+          <div style={{ position: 'relative', width: '100%', height: '525px' }}>
+            <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+            {filteredValues.length === 0 && (
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
+                暂无历史数据
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Recent Values Table */}
-      <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)' }}>
-        <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
-          近期数据
-        </h3>
+      {/* Price + MA200W Chart */}
+      {isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginBottom: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              价格与200周均线
+            </h3>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setIsPriceLogScale(!isPriceLogScale)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: isPriceLogScale ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                  color: isPriceLogScale ? 'white' : 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {isPriceLogScale ? '对数' : '线性'}
+              </button>
+              <button
+                onClick={handleRecalculate}
+                disabled={recalculating}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '8px 16px',
+                  borderRadius: '10px',
+                  border: '1px solid var(--border-color)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: recalculating ? 'not-allowed' : 'pointer',
+                  opacity: recalculating ? 0.7 : 1,
+                  transition: 'all 0.2s',
+                }}
+              >
+                {recalculating ? (
+                  <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <RefreshCw size={14} />
+                )}
+                重新计算
+              </button>
+              {timeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  onClick={() => setTimeRange(btn.key)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border-color)',
+                    background: timeRange === btn.key ? 'var(--primary-color)' : 'var(--bg-secondary)',
+                    color: timeRange === btn.key ? 'white' : 'var(--text-secondary)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Dynamic legend based on config */}
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+            {(indicator?.config ? indicator.config.multipliers.map((m: number, i: number) => ({
+              label: m === 1.0 ? `${indicator.config.labels?.[i] || '低估'}(MA200W)` : `${indicator.config.labels?.[i] || ''}(${m}x)`,
+              color: indicator.config.colors?.[i] || '#64748b'
+            })) : [
+              { label: '极度低估(1.0x)', color: '#3b82f6' },
+              { label: '低估(1.5x)', color: '#22c55e' },
+              { label: '合理估值(2.0x)', color: '#eab308' },
+              { label: '高估(2.5x)', color: '#f97316' },
+              { label: '极度高估(3.0x)', color: '#dc2626' },
+            ]).map((item, i) => (
+              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '20px', height: '3px', background: item.color, borderRadius: '2px' }} />
+                {item.label}
+              </span>
+            ))}
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ width: '12px', height: '12px', background: '#22c55e', borderRadius: '2px', opacity: 0.7 }} />
+              <span style={{ width: '12px', height: '12px', background: '#ef4444', borderRadius: '2px', opacity: 0.7 }} />
+              K线
+            </span>
+          </div>
+          <div style={{ position: 'relative', width: '100%', height: '525px' }}>
+            <div ref={priceChartContainerRef} style={{ width: '100%', height: '100%' }} />
+            {priceChartData.length === 0 && (
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', background: 'var(--bg-primary)' }}>
+                暂无价格数据
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-        {values.length > 0 ? (
+      {/* MA200 估值区间天数统计 */}
+      {isMA200 && ma200Stats && ma200Stats.totalDays > 0 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)', marginTop: '20px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+            估值区间分布
+            <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)', marginLeft: '12px' }}>
+              共 {ma200Stats.totalDays} 个交易日
+            </span>
+          </h3>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: 'var(--bg-secondary)' }}>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>日期</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>数值</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>档位</th>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>说明</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>估值区间</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>天数</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>占比</th>
+                  <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>参考价位</th>
                 </tr>
               </thead>
               <tbody>
-                {[...values].reverse().slice(0, 10).map((v, index) => {
-                  const grade = v.grade ? gradeConfig[v.grade] : null;
-                  const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
-                  const displayGrade = isFearGreed ? fearGreedGrade : grade;
-
-                  return (
-                    <tr key={v.id} style={{ borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none' }}>
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>{v.date}</td>
-                      <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{v.value.toFixed(2)}</td>
-                      <td style={{ padding: '14px 16px', textAlign: 'center' }}>
-                        {displayGrade ? (
-                          <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: `${displayGrade.color}20`, color: displayGrade.color }}>
-                            {displayGrade.label}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>{v.value_text || '-'}</td>
-                    </tr>
-                  );
-                })}
+                {ma200Stats.intervals.map((interval, index) => (
+                  <tr key={index} style={{ borderBottom: index < ma200Stats.intervals.length - 1 ? '1px solid var(--border-color)' : 'none' }}>
+                    <td style={{ padding: '14px 16px' }}>
+                      <span style={{
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        padding: '4px 10px',
+                        borderRadius: '20px',
+                        background: `${interval.color}20`,
+                        color: interval.color,
+                      }}>
+                        {interval.label}
+                      </span>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                        {interval.min === 0 ? `< ${interval.max}x` : interval.max === Infinity ? `> ${interval.min}x` : `${interval.min}x - ${interval.max}x`}
+                      </span>
+                    </td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {interval.count}
+                    </td>
+                    <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          flex: 1,
+                          height: '8px',
+                          background: 'var(--bg-secondary)',
+                          borderRadius: '4px',
+                          overflow: 'hidden',
+                          maxWidth: '100px',
+                        }}>
+                          <div style={{
+                            width: `${ma200Stats.totalDays > 0 ? (interval.count / ma200Stats.totalDays * 100) : 0}%`,
+                            height: '100%',
+                            background: interval.color,
+                            borderRadius: '4px',
+                          }} />
+                        </div>
+                        <span style={{ fontSize: '13px', color: 'var(--text-secondary)', minWidth: '45px' }}>
+                          {ma200Stats.totalDays > 0 ? ((interval.count / ma200Stats.totalDays) * 100).toFixed(1) : 0}%
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      {(() => {
+                        const latestMA = priceChartData[priceChartData.length - 1]?.ma_value;
+                        if (!latestMA) return '-';
+                        const priceAtMin = latestMA * interval.min;
+                        const priceAtMax = interval.max === Infinity ? null : latestMA * interval.max;
+                        if (interval.max === Infinity) {
+                          return `> ${priceAtMin.toFixed(2)}`;
+                        }
+                        return `${priceAtMin.toFixed(2)} - ${priceAtMax?.toFixed(2)}`;
+                      })()}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>暂无数据</div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Recent Values Table - hidden for MA200 */}
+      {!isMA200 && (
+        <div style={{ background: 'var(--bg-primary)', borderRadius: '20px', padding: '24px', border: '1px solid var(--border-color)' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+            近期数据
+          </h3>
+
+          {filteredValues.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>日期</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>数值</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>档位</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>说明</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...filteredValues].reverse().slice(0, 10).map((v, index) => {
+                    const grade = v.grade ? gradeConfig[v.grade] : null;
+                    const fearGreedGrade = isFearGreed ? getFearGreedGrade(v.value) : null;
+                    const displayGrade = isFearGreed ? fearGreedGrade : grade;
+
+                    return (
+                      <tr key={v.id} style={{ borderBottom: index < 9 ? '1px solid var(--border-color)' : 'none' }}>
+                        <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-primary)' }}>{v.date}</td>
+                        <td style={{ padding: '14px 16px', fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>{v.value.toFixed(2)}</td>
+                        <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                          {displayGrade ? (
+                            <span style={{ fontSize: '12px', fontWeight: 600, padding: '4px 10px', borderRadius: '20px', background: `${displayGrade.color}20`, color: displayGrade.color }}>
+                              {displayGrade.label}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td style={{ padding: '14px 16px', fontSize: '14px', color: 'var(--text-secondary)' }}>{v.value_text || '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>暂无数据</div>
+          )}
+        </div>
+      )}
+
+      {/* Backfill Modal */}
+      {showBackfillModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div style={{
+            background: 'var(--bg-primary)', borderRadius: '16px', padding: '24px',
+            width: '100%', maxWidth: '400px', margin: '20px',
+            border: '1px solid var(--border-color)',
+          }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 20px 0' }}>
+              增补历史价格数据
+            </h3>
+            <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '16px' }}>
+              将拉取 {indicator.asset_id} 从 {backfillStart} 到 {backfillEnd} 的价格数据，用于计算200周均线。
+            </p>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>开始日期</label>
+              <input
+                type="date"
+                value={backfillStart}
+                onChange={(e) => setBackfillStart(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)', fontSize: '14px',
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>结束日期</label>
+              <input
+                type="date"
+                value={backfillEnd}
+                onChange={(e) => setBackfillEnd(e.target.value)}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-primary)', fontSize: '14px',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => setShowBackfillModal(false)}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px',
+                  border: '1px solid var(--border-color)', background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBackfillPrices}
+                disabled={backfilling || !backfillStart || !backfillEnd}
+                style={{
+                  flex: 1, padding: '10px', borderRadius: '8px',
+                  border: 'none', background: 'var(--primary-color)', color: 'white',
+                  fontSize: '14px', fontWeight: 600,
+                  cursor: backfilling || !backfillStart || !backfillEnd ? 'not-allowed' : 'pointer',
+                  opacity: backfilling || !backfillStart || !backfillEnd ? 0.7 : 1,
+                }}
+              >
+                {backfilling ? '处理中...' : '确认增补'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

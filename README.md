@@ -99,7 +99,7 @@ data-terminal/
 │   ├── src/          # 源代码
 │   ├── Dockerfile    # 前端镜像构建
 │   └── nginx.conf    # Nginx 配置
-├── data_explore/      # 数据探索脚本
+├── db_scripts/        # 数据库脚本 & 数据探索
 ├── docs/             # 文档
 ├── docker-compose.yml # Docker 编排配置
 └── .env.example      # 环境变量示例

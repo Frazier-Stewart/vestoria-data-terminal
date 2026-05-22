@@ -13,7 +13,9 @@ from app.models.asset import Asset
 from app.models.indicator import Indicator, IndicatorTemplate
 from app.models.admin import Admin
 from app.indicators.btc_fear_greed import init_btc_fear_greed_targets
+from app.indicators.cnn_fear_greed import init_cnn_fear_greed_targets
 from app.indicators.ma200 import init_ma200_targets
+from app.indicators.volatility_indices import init_volatility_targets
 from app.services.auth_service import AuthService
 
 # Import fetchers to register them
@@ -45,46 +47,12 @@ def init_indicators():
 
         # Create default indicator instances if not exists
         created_count = 0
-        
-        # 2. VIX 波动率指数
-        vix_asset = db.query(Asset).filter(Asset.id == "^VIX").first()
-        if not vix_asset:
-            vix_asset = Asset(
-                id="^VIX",
-                symbol="^VIX",
-                name="CBOE Volatility Index",
-                asset_type="index",
-                exchange="CBOE",
-                currency="USD",
-                data_source="yfinance",
-                source_symbol="^VIX",
-                is_active=True,
-                is_watched=False
-            )
-            db.add(vix_asset)
-            logging.getLogger("main").info("Created VIX asset")
-        
-        vix_template = db.query(IndicatorTemplate).filter(IndicatorTemplate.id == "VIX").first()
-        if vix_asset and vix_template:
-            existing = db.query(Indicator).filter(
-                Indicator.template_id == "VIX",
-                Indicator.asset_id == "^VIX"
-            ).first()
-            if not existing:
-                indicator = Indicator(
-                    template_id="VIX",
-                    asset_id="^VIX",
-                    name="VIX波动率指数",
-                    params={"symbol": "^VIX"},
-                    is_active=True
-                )
-                db.add(indicator)
-                created_count += 1
-                logging.getLogger("main").info("Created VIX indicator")
 
-        # 3. Let indicator modules own their required watched-asset bootstrap logic
+        # Let indicator modules own their required watched-asset bootstrap logic
         created_count += init_btc_fear_greed_targets(db)
+        created_count += init_cnn_fear_greed_targets(db)
         created_count += init_ma200_targets(db)
+        created_count += init_volatility_targets(db)
 
         db.commit()
         

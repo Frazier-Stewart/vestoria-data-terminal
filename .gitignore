@@ -33,7 +33,7 @@ data/*.db
 data/*.db.*
 
 # Experiments (keep dir, ignore contents)
-data_explore/binance/skills/
+db_scripts/binance_explore/skills/
 
 # Test coverage
 htmlcov/
@@ -47,3 +47,6 @@ frontend/*.tsbuildinfo
 # Environment files
 .env
 .env.*
+
+# Lock files (for reproducible builds)
+!backend/uv.lock
